@@ -1,0 +1,57 @@
+{
+  "version": "1.0",
+  "index_dir": ".tantivy-data",
+
+  "global_patterns": {
+    "include": ["*.md", "*.txt"],
+    "exclude": ["*.tmp", "*~", "*.bak", "*.draft"]
+  },
+
+  "index_dirs": [
+    "docs/",
+    {
+      "path": "guides/",
+      "include": ["*.md", "*.rst"]
+    },
+    {
+      "path": "servers/",
+      "include": ["*.md"]
+    },
+    {
+      "path": "incidents/",
+      "include": ["*.md"],
+      "exclude": ["*template*", "*draft*"]
+    }
+  ],
+
+  "schema_fields": {
+    "title": {
+      "weight": 2.0,
+      "tokenizer": "en_stem"
+    },
+    "body": {
+      "weight": 1.0,
+      "tokenizer": "en_stem"
+    },
+    "tags": {
+      "weight": 1.5,
+      "tokenizer": "default"
+    },
+    "servers": {
+      "weight": 1.5,
+      "tokenizer": "default"
+    },
+    "path": {
+      "weight": 0.5,
+      "tokenizer": "raw"
+    }
+  },
+
+  "search": {
+    "default_limit": 10,
+    "hide_incidents": true,
+    "show_incidents_on": ["incident", "emergency"]
+  },
+
+  "auto_hook": true
+}
