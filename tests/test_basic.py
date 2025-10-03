@@ -18,7 +18,9 @@ def run_test(test_name, test_func):
         print(f"✅ {test_name}")
         return True
     except Exception as e:
+        import traceback
         print(f"❌ {test_name}: {e}")
+        print(f"   Traceback: {traceback.format_exc()}")
         return False
 
 def test_basic_functionality():
@@ -271,6 +273,197 @@ def test_export_functionality():
         finally:
             os.chdir(os.path.dirname(temp_dir))
 
+def test_project_detection():
+    """Test project type detection"""
+    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy-agent.py")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    TantivyAgent = module.TantivyAgent
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            # Test Python project detection
+            python_dir = os.path.join(temp_dir, "python-project")
+            os.makedirs(python_dir)
+            os.chdir(python_dir)
+            with open("requirements.txt", "w") as f:
+                f.write("flask==2.0\n")
+            os.makedirs("src", exist_ok=True)
+
+            agent = TantivyAgent()
+            agent.project_root = python_dir
+            project_type = agent._detect_project_type()
+            assert project_type == "python"
+
+            # Test Node.js project detection
+            nodejs_dir = os.path.join(temp_dir, "nodejs-project")
+            os.makedirs(nodejs_dir)
+            os.chdir(nodejs_dir)
+            with open("package.json", "w") as f:
+                f.write('{"name": "test", "version": "1.0.0"}\n')
+            os.makedirs("node_modules", exist_ok=True)
+
+            agent = TantivyAgent()
+            agent.project_root = nodejs_dir
+            project_type = agent._detect_project_type()
+            assert project_type == "nodejs"
+
+            # Test generic project
+            generic_dir = os.path.join(temp_dir, "generic-project")
+            os.makedirs(generic_dir)
+            os.chdir(generic_dir)
+            with open("README.md", "w") as f:
+                f.write("# Generic Project\n")
+
+            agent = TantivyAgent()
+            agent.project_root = generic_dir
+            project_type = agent._detect_project_type()
+            assert project_type == "generic"
+
+        finally:
+            os.chdir(os.path.dirname(temp_dir))
+
+def test_glob_patterns():
+    """Test glob pattern expansion"""
+    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy-agent.py")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    TantivyAgent = module.TantivyAgent
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.chdir(temp_dir)
+        try:
+            # Create test directory structure
+            os.makedirs("docs/subdir", exist_ok=True)
+            os.makedirs("src/components", exist_ok=True)
+            os.makedirs("target", exist_ok=True)
+
+            with open("docs/guide.md", "w") as f:
+                f.write("# Guide\n")
+            with open("docs/subdir/api.md", "w") as f:
+                f.write("# API\n")
+            with open("src/component.md", "w") as f:
+                f.write("# Component\n")
+            with open("target/build.md", "w") as f:
+                f.write("# Build\n")
+
+            agent = TantivyAgent()
+
+            # Test simple glob pattern
+            patterns = ["*.md"]
+            expanded = agent._expand_glob_patterns(patterns)
+            file_names = [item["path"] for item in expanded]
+            assert "docs/guide.md" not in file_names  # Not in root
+            assert len([f for f in file_names if f.endswith(".md")]) >= 0
+
+            # Test recursive glob pattern
+            patterns = ["docs/**"]
+            expanded = agent._expand_glob_patterns(patterns)
+            expanded_paths = [item["path"] for item in expanded]
+            assert any("docs/guide.md" in path for path in expanded_paths)
+            assert any("docs/subdir/api.md" in path for path in expanded_paths)
+
+            # Test exclude pattern
+            patterns = [
+                {"path": "docs/**", "exclude": False},
+                {"path": "target", "exclude": True}
+            ]
+            expanded = agent._expand_glob_patterns(patterns)
+            expanded_paths = [item for item in expanded if not item.get("exclude", False)]
+            excluded_paths = [item for item in expanded if item.get("exclude", False)]
+
+            # Should have docs, exclude target
+            assert any("docs" in item["path"] for item in expanded_paths)
+            assert any("target" in item["path"] for item in excluded_paths)
+
+        finally:
+            os.chdir(os.path.dirname(temp_dir))
+
+def test_default_configs():
+    """Test default configurations for different project types"""
+    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy-agent.py")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    TantivyAgent = module.TantivyAgent
+
+    # Test Python project config
+    agent = TantivyAgent()
+    python_config = agent._get_default_config_for_project_type("python")
+    assert "index_dirs" in python_config
+    assert any("docs/**" in str(item) for item in python_config["index_dirs"])
+    assert any(".venv" in str(item) and item.get("exclude", False) for item in python_config["index_dirs"])
+
+    # Test Node.js project config
+    nodejs_config = agent._get_default_config_for_project_type("nodejs")
+    assert "index_dirs" in nodejs_config
+    assert any("node_modules" in str(item) and item.get("exclude", False) for item in nodejs_config["index_dirs"])
+
+    # Test Generic project config
+    generic_config = agent._get_default_config_for_project_type("generic")
+    assert "index_dirs" in generic_config
+    assert any("**/.*" in str(item) and item.get("exclude", False) for item in generic_config["index_dirs"])
+
+def test_install_functionality():
+    """Test install functionality with symlink creation"""
+    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy-agent.py")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    TantivyAgent = module.TantivyAgent
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.chdir(temp_dir)
+        try:
+            # Create target project directory
+            target_project = os.path.join(temp_dir, "test-project")
+            os.makedirs(target_project)
+
+            # Create some project files for detection
+            with open(os.path.join(target_project, "requirements.txt"), "w") as f:
+                f.write("flask==2.0\n")
+
+            agent = TantivyAgent()
+
+            # Test symlink creation
+            agent._create_symlink(target_project)
+
+            # Check if symlink was created
+            tools_dir = os.path.join(target_project, "tools")
+            symlink_path = os.path.join(tools_dir, "tantivy-agent.py")
+            assert os.path.exists(symlink_path)
+            assert os.path.islink(symlink_path)
+
+            # Test default config creation
+            agent._create_default_config(target_project)
+            config_path = os.path.join(target_project, ".tantivi2agents.json")
+            assert os.path.exists(config_path)
+
+            with open(config_path, "r") as f:
+                config = json.load(f)
+                assert "index_dirs" in config
+                assert "version" in config
+                assert config["version"] == "1.0"
+
+            # Test gitignore setup
+            agent._setup_gitignore(target_project)
+            gitignore_path = os.path.join(target_project, ".gitignore")
+            assert os.path.exists(gitignore_path)
+
+            with open(gitignore_path, "r") as f:
+                content = f.read()
+                assert ".tantivy-data/" in content
+                assert "!tools/tantivy-agent.py" in content
+
+        finally:
+            os.chdir(os.path.dirname(temp_dir))
+
 def main():
     """Run all tests"""
     print("🧪 Running Tantivy Agent Tests...")
@@ -281,7 +474,11 @@ def main():
         ("Config Loading", test_config_loading),
         ("File Parsing", test_file_parsing),
         ("Pattern Matching", test_patterns),
-        ("Export Functionality", test_export_functionality)
+        ("Export Functionality", test_export_functionality),
+        ("Project Detection", test_project_detection),
+        ("Glob Patterns", test_glob_patterns),
+        ("Default Configs", test_default_configs),
+        ("Install Functionality", test_install_functionality)
     ]
 
     passed = 0

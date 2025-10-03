@@ -1,2 +1,5 @@
 # Tantivy Agent data
 .tantivy-data/
+
+# Test directory
+tmp/

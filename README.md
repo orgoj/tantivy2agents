@@ -13,14 +13,31 @@ All-in-one solution for document indexing and search using Tantivy with flexible
 
 ## Quick Start
 
-### 1. Link to Your Project
+### Automatic Installation (Recommended)
+
+The Tantivy Agent can automatically install itself in any project:
+
+```bash
+# Install in current project (auto-detects project type)
+python /path/to/tantivi2agents/tantivy-agent.py install
+
+# Install in specific target directory
+python /path/to/tantivi2agents/tantivy-agent.py install --target /path/to/project
+
+# Install without creating default config
+python /path/to/tantivi2agents/tantivy-agent.py install --no-config
+```
+
+### Manual Installation
+
+#### 1. Link to Your Project
 
 ```bash
 # In your project directory
 ln -s /path/to/tantivi2agents/tantivy-agent.py ./tools/tantivy-agent.py
 ```
 
-### 2. Create Configuration
+#### 2. Create Configuration
 
 Copy the example config to your project root:
 
@@ -28,14 +45,14 @@ Copy the example config to your project root:
 cp /path/to/tantivi2agents/examples/.tantivi2agents.json ./
 ```
 
-### 3. Install Hooks and Create Index
+#### 3. Install Hooks and Create Index
 
 ```bash
 ./tools/tantivy-agent.py install
 ./tools/tantivy-agent.py index
 ```
 
-### 4. Search Your Documents
+#### 4. Search Your Documents
 
 ```bash
 ./tools/tantivy-agent.py search "your query"
@@ -44,9 +61,30 @@ cp /path/to/tantivi2agents/examples/.tantivi2agents.json ./
 
 ## Configuration
 
+### Smart Auto-Configuration
+
+When you run `python tantivy-agent.py install`, the agent automatically:
+
+1. **Detects project type** (Python, Node.js, Java, or Generic)
+2. **Creates optimal configuration** based on project structure
+3. **Sets up appropriate patterns** and exclusions
+4. **Installs Claude hooks** and gitignore entries
+
+### Project Type Detection
+
+| Project Type | Indicators | Default `index_dirs` |
+|-------------|------------|-------------------|
+| **Python** | `requirements.txt`, `pyproject.toml`, `setup.py`, `src/` | `docs/**`, `src/**/*.md`, `tests/**/*.md`, exclude `.venv/`, `__pycache__/` |
+| **Node.js** | `package.json`, `node_modules/` | `docs/**`, `src/**/*.md`, exclude `node_modules/`, `dist/`, `build/` |
+| **Java** | `pom.xml`, `build.gradle`, `src/main/java/` | `docs/**`, `src/**/*.md`, exclude `target/`, `.idea/` |
+| **Rust** | `Cargo.toml`, `src/main.rs` | `docs/**`, `src/**/*.md`, exclude `target/` |
+| **Generic** | No specific indicators | `docs/**`, `*.md`, exclude `node_modules/`, `target/`, `dist/`, hidden files |
+
+### Advanced Configuration
+
 The `.tantivi2agents.json` file controls all behavior:
 
-### Basic Structure
+#### Basic Structure
 
 ```json
 {
@@ -64,6 +102,20 @@ The `.tantivi2agents.json` file controls all behavior:
   "schema_fields": { /* field configuration */ },
   "search": { /* search settings */ },
   "auto_hook": true
+}
+```
+
+#### Glob Pattern Support
+
+```json
+{
+  "index_dirs": [
+    "docs/**",                        // Recursive docs directory
+    "*.md",                          // All markdown in root
+    {"path": "node_modules", "exclude": true},  // Exclude directory
+    {"path": "**/.*", "exclude": true},           // Exclude all hidden files
+    {"path": "src/**/*.md", "include": ["*.md"]}   // Specific include patterns
+  ]
 }
 ```
 
@@ -87,11 +139,21 @@ The `.tantivi2agents.json` file controls all behavior:
 ./tools/tantivy-agent.py search "query"
 ./tools/tantivy-agent.py search "query" --limit 5
 
+# Export search results
+./tools/tantivy-agent.py search "server" --format json --output results.json
+./tools/tantivy-agent.py search "config" --format csv -o analysis.csv
+
 # Clear index
 ./tools/tantivy-agent.py clear
 
-# Install Claude hooks
+# Install Tantivy Agent (smart auto-configuration)
 ./tools/tantivy-agent.py install
+
+# Install in specific target directory
+python /path/to/tantivy-agent.py install --target /path/to/project
+
+# Install without creating default config
+python /path/to/tantivy-agent.py install --no-config
 
 # Hook command (used automatically by Claude)
 ./tools/tantivy-agent.py hook-clear
@@ -337,32 +399,57 @@ Solution: Check file permissions in your project directory.
 ### Run Tests
 
 ```bash
-# Run all tests
+# Run all test suites (Basic + Install functionality)
 python run_tests.py
 
-# Or run specific test file
-python tests/test_basic.py
+# Run specific test suite
+python tests/test_basic.py      # Basic functionality tests
+python tests/test_install.py    # Install functionality tests
 ```
 
 ### Test Coverage
 
 The test suite covers:
 
-- ✅ **Basic functionality** - All commands work correctly
+#### Basic Functionality (9 tests)
+- ✅ **All commands work correctly** - index, search, clear, install
 - ✅ **Configuration loading** - Default and custom configs
 - ✅ **File parsing** - Markdown frontmatter extraction
 - ✅ **Pattern matching** - Include/exclude patterns
 - ✅ **Export functionality** - JSON/CSV/TXT export formats
+- ✅ **Project detection** - Python, Node.js, Java, Generic
+- ✅ **Glob patterns** - Recursive patterns and exclude logic
+- ✅ **Default configs** - Smart configuration for project types
+- ✅ **Install workflow** - Complete installation process
+
+#### Install Functionality (16 tests)
+- ✅ **Project Type Detection** - Accurate detection for all project types
+- ✅ **Default Configurations** - Optimal settings per project type
+- ✅ **Glob Pattern Processing** - Recursive patterns and exclusions
+- ✅ **Complete Install Workflow** - Symlink, config, gitignore, hooks
 
 ### Test Environment
 
-Tests run in isolated temporary directories and don't affect your project data. They verify:
+- ✅ **Automated testing only** - No manual testing allowed
+- ✅ **tmp/ directory** - All test data in .gitignore
+- ✅ **Repeatable tests** - Deterministic, clean state each run
+- ✅ **Professional practices** - Senior-level code quality standards
 
-1. Script execution and CLI interface
-2. Configuration file handling
-3. Document parsing accuracy
-4. File pattern matching
-5. Index creation and search functionality
+Test files run in isolated temporary directories and verify:
+1. All functionality via automated tests
+2. Configuration generation and validation
+3. File pattern matching and glob expansion
+4. Complete installation workflow (symlinks, configs, gitignore, hooks)
+5. CLI interface and command execution
+6. Project type detection accuracy
+
+### Development Rules
+
+See `.claude/CLAUDE.md` for strict development standards:
+- ❌ **NO manual testing** ever
+- ✅ **ALWAYS** automated tests
+- ✅ **ALWAYS** update README after changes
+- ✅ **ALWAYS** maintain code quality standards
 
 ## License
 

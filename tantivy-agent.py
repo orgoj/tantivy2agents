@@ -27,6 +27,8 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
+import glob
+import fnmatch
 import tantivy
 
 
@@ -107,37 +109,218 @@ class TantivyAgent:
 
         return data_dir
 
+    def _detect_project_type(self):
+        """Detect project type based on common indicators"""
+        indicators = {
+            'python': ['setup.py', 'pyproject.toml', 'requirements.txt', 'Pipfile', 'pyvenv.cfg', '.venv/', 'src/'],
+            'nodejs': ['package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'node_modules/', 'npm-debug.log*'],
+            'java': ['pom.xml', 'build.gradle', 'gradlew', 'src/main/java/', 'target/', '.mvn/'],
+            'rust': ['Cargo.toml', 'Cargo.lock', 'src/main.rs', 'target/'],
+            'go': ['go.mod', 'go.sum', 'main.go', 'vendor/'],
+            'php': ['composer.json', 'composer.lock', 'artisan', 'vendor/'],
+            'ruby': ['Gemfile', 'Gemfile.lock', 'Rakefile', 'Gemfile.lock'],
+            'web': ['index.html', 'package.json', 'webpack.config.js', 'vite.config.js', 'dist/', 'build/']
+        }
+
+        project_type_scores = {}
+
+        for proj_type, files in indicators.items():
+            score = 0
+            for file_pattern in files:
+                if file_pattern.endswith('/'):
+                    # Directory check
+                    if os.path.exists(os.path.join(self.project_root, file_pattern)):
+                        score += 2
+                elif '*' in file_pattern or '?' in file_pattern:
+                    # Glob pattern
+                    if glob.glob(os.path.join(self.project_root, file_pattern)):
+                        score += 1
+                else:
+                    # File check
+                    if os.path.exists(os.path.join(self.project_root, file_pattern)):
+                        score += 2
+            project_type_scores[proj_type] = score
+
+        # Return type with highest score
+        if project_type_scores:
+            detected_type = max(project_type_scores, key=project_type_scores.get)
+            if project_type_scores[detected_type] > 0:
+                return detected_type
+
+        return 'generic'
+
+    def _get_default_config_for_project_type(self, project_type):
+        """Get default configuration based on project type"""
+        base_config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {
+                "include": ["*.md", "*.txt", "*.rst"],
+                "exclude": ["*.tmp", "*~", "*.bak", "*.log"]
+            },
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "tags": {"weight": 1.5, "tokenizer": "default"},
+                "servers": {"weight": 1.5, "tokenizer": "default"},
+                "path": {"weight": 0.5, "tokenizer": "raw"}
+            },
+            "search": {"default_limit": 10, "hide_incidents": True},
+            "auto_hook": True
+        }
+
+        project_configs = {
+            'python': {
+                "index_dirs": [
+                    "docs/**",
+                    "src/**/*.md",
+                    "tests/**/*.md",
+                    "*.md",
+                    {"path": ".venv", "exclude": True},
+                    {"path": "__pycache__", "exclude": True},
+                    {"path": "**/.*", "exclude": True}
+                ]
+            },
+            'nodejs': {
+                "index_dirs": [
+                    "docs/**",
+                    "src/**/*.md",
+                    "*.md",
+                    {"path": "node_modules", "exclude": True},
+                    {"path": "dist", "exclude": True},
+                    {"path": "build", "exclude": True},
+                    {"path": "**/.*", "exclude": True}
+                ]
+            },
+            'java': {
+                "index_dirs": [
+                    "docs/**",
+                    "src/**/*.md",
+                    "*.md",
+                    {"path": "target", "exclude": True},
+                    {"path": ".idea", "exclude": True},
+                    {"path": "**/.*", "exclude": True}
+                ]
+            },
+            'rust': {
+                "index_dirs": [
+                    "docs/**",
+                    "src/**/*.md",
+                    "*.md",
+                    {"path": "target", "exclude": True},
+                    {"path": "**/.*", "exclude": True}
+                ]
+            },
+            'generic': {
+                "index_dirs": [
+                    "docs/**",
+                    "*.md",
+                    "*.txt",
+                    "*.rst",
+                    {"path": "**/.*", "exclude": True},
+                    {"path": "node_modules", "exclude": True},
+                    {"path": "target", "exclude": True},
+                    {"path": "dist", "exclude": True},
+                    {"path": "build", "exclude": True}
+                ]
+            }
+        }
+
+        # Merge base config with project-specific config
+        config = base_config.copy()
+        if project_type in project_configs:
+            config.update(project_configs[project_type])
+        else:
+            config.update(project_configs['generic'])
+
+        return config
+
+    def _expand_glob_patterns(self, pattern_list):
+        """Expand glob patterns to actual directory/file paths"""
+        expanded_paths = []
+
+        for item in pattern_list:
+            if isinstance(item, str):
+                # Simple pattern - expand it
+                if '**' in item:
+                    # Recursive glob
+                    matches = glob.glob(os.path.join(self.project_root, item), recursive=True)
+                else:
+                    # Regular glob
+                    matches = glob.glob(os.path.join(self.project_root, item))
+
+                # Filter to only existing directories and files
+                for match in matches:
+                    if os.path.exists(match):
+                        rel_path = os.path.relpath(match, self.project_root)
+                        expanded_paths.append({"path": rel_path, "type": "dir" if os.path.isdir(match) else "file"})
+
+            elif isinstance(item, dict):
+                # Directory with exclude/include rules
+                path_pattern = item.get('path', '')
+                exclude = item.get('exclude', False)
+
+                if '**' in path_pattern:
+                    matches = glob.glob(os.path.join(self.project_root, path_pattern), recursive=True)
+                else:
+                    matches = glob.glob(os.path.join(self.project_root, path_pattern))
+
+                for match in matches:
+                    if os.path.exists(match):
+                        rel_path = os.path.relpath(match, self.project_root)
+                        expanded_paths.append({
+                            "path": rel_path,
+                            "exclude": exclude,
+                            "type": "dir" if os.path.isdir(match) else "file"
+                        })
+
+        return expanded_paths
+
     def _get_files_for_indexing(self):
-        """Get list of files to index based on configuration"""
+        """Get list of files to index based on configuration with glob pattern support"""
         files = []
 
-        for dir_config in self.config['index_dirs']:
-            if isinstance(dir_config, str):
-                dir_path = dir_config
-                include_patterns = self.config['global_patterns']['include']
-                exclude_patterns = self.config['global_patterns']['exclude']
-            else:
-                dir_path = dir_config['path']
-                include_patterns = dir_config.get('include', self.config['global_patterns']['include'])
-                exclude_patterns = dir_config.get('exclude', self.config['global_patterns']['exclude'])
+        # First expand glob patterns in index_dirs
+        expanded_dirs = self._expand_glob_patterns(self.config['index_dirs'])
+
+        for dir_config in expanded_dirs:
+            # Skip if this is marked as excluded
+            if dir_config.get('exclude', False):
+                continue
+
+            dir_path = dir_config['path']
+            include_patterns = self.config['global_patterns']['include']
+            exclude_patterns = self.config['global_patterns']['exclude']
 
             full_dir_path = os.path.join(self.project_root, dir_path)
             if not os.path.exists(full_dir_path):
                 continue
 
-            for root, dirs, filenames in os.walk(full_dir_path):
-                for filename in filenames:
-                    file_path = os.path.join(root, filename)
-                    rel_path = os.path.relpath(file_path, self.project_root)
+            if dir_config.get('type') == 'file':
+                # Single file
+                rel_path = os.path.relpath(full_dir_path, self.project_root)
 
-                    # Check include patterns
-                    included = any(self._match_pattern(rel_path, pattern) for pattern in include_patterns)
+                # Check if file matches include patterns
+                included = any(self._match_pattern(rel_path, pattern) for pattern in include_patterns)
+                excluded = any(self._match_pattern(rel_path, pattern) for pattern in exclude_patterns)
 
-                    # Check exclude patterns
-                    excluded = any(self._match_pattern(rel_path, pattern) for pattern in exclude_patterns)
+                if included and not excluded:
+                    files.append(full_dir_path)
+            else:
+                # Directory - walk through it
+                for root, dirs, filenames in os.walk(full_dir_path):
+                    for filename in filenames:
+                        file_path = os.path.join(root, filename)
+                        rel_path = os.path.relpath(file_path, self.project_root)
 
-                    if included and not excluded:
-                        files.append(file_path)
+                        # Check include patterns
+                        included = any(self._match_pattern(rel_path, pattern) for pattern in include_patterns)
+
+                        # Check exclude patterns
+                        excluded = any(self._match_pattern(rel_path, pattern) for pattern in exclude_patterns)
+
+                        if included and not excluded:
+                            files.append(file_path)
 
         return files
 
@@ -530,19 +713,159 @@ class TantivyAgent:
         else:
             print("ℹ️  No index directory found")
 
-    def install_command(self):
-        """Install Claude hooks and setup"""
-        print("🔧 Installing Tantivy Agent...")
+    def install_command(self, target_dir=None, create_config=True):
+        """Install Tantivy Agent in target project with smart setup"""
+        if target_dir:
+            target_project_root = os.path.abspath(target_dir)
+            print(f"🔧 Installing Tantivy Agent in {target_project_root}...")
+        else:
+            target_project_root = self.project_root
+            print("🔧 Installing Tantivy Agent in current project...")
 
-        # Ensure data directory
-        self._ensure_data_dir()
+        # Step 1: Create symlink
+        self._create_symlink(target_project_root)
 
-        # Install Claude hooks if enabled
-        if self.config.get('auto_hook', True):
-            self._install_claude_hooks()
+        # Step 2: Create default config if needed
+        if create_config:
+            self._create_default_config(target_project_root)
+
+        # Step 3: Install Claude hooks in target
+        self._install_claude_hooks_in_target(target_project_root)
+
+        # Step 4: Setup .gitignore
+        self._setup_gitignore(target_project_root)
 
         print("✅ Installation complete!")
-        print("💡 Run 'python tantivy-agent.py index' to create your first index")
+        print(f"💡 Tantivy Agent installed in {target_project_root}")
+        print(f"🔗 Symlink created: tools/tantivy-agent.py")
+        print("💡 Run './tools/tantivy-agent.py index' to create your first index")
+
+    def _create_symlink(self, target_project_root):
+        """Create symlink to tantivy-agent.py in target project"""
+        # Get current script location
+        current_script = os.path.abspath(__file__)
+        target_tools_dir = os.path.join(target_project_root, 'tools')
+        target_symlink = os.path.join(target_tools_dir, 'tantivy-agent.py')
+
+        # Create tools directory if it doesn't exist
+        os.makedirs(target_tools_dir, exist_ok=True)
+
+        # Remove existing symlink if it exists
+        if os.path.exists(target_symlink):
+            if os.path.islink(target_symlink):
+                os.unlink(target_symlink)
+            else:
+                # It's a regular file, not a symlink
+                backup_path = target_symlink + '.backup'
+                shutil.move(target_symlink, backup_path)
+                print(f"⚠️  Existing file backed up to: {backup_path}")
+
+        # Create symlink
+        try:
+            os.symlink(current_script, target_symlink)
+            print(f"✅ Created symlink: {target_symlink}")
+        except OSError as e:
+            print(f"❌ Failed to create symlink: {e}")
+            print(f"💡 You can manually link: ln -s {current_script} {target_symlink}")
+
+    def _create_default_config(self, target_project_root):
+        """Create default configuration for target project"""
+        config_path = os.path.join(target_project_root, '.tantivi2agents.json')
+
+        if os.path.exists(config_path):
+            print(f"ℹ️  Configuration already exists: {config_path}")
+            return
+
+        # Temporarily change project root for detection
+        original_root = self.project_root
+        self.project_root = target_project_root
+
+        try:
+            # Detect project type
+            project_type = self._detect_project_type()
+            print(f"🔍 Detected project type: {project_type}")
+
+            # Get default config
+            default_config = self._get_default_config_for_project_type(project_type)
+
+            # Write config file
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(default_config, f, indent=2)
+
+            print(f"✅ Created configuration: {config_path}")
+        finally:
+            # Restore original project root
+            self.project_root = original_root
+
+    def _install_claude_hooks_in_target(self, target_project_root):
+        """Install Claude hooks in target project"""
+        claude_dir = os.path.join(target_project_root, '.claude')
+        os.makedirs(claude_dir, exist_ok=True)
+
+        claude_config_path = os.path.join(claude_dir, 'CLAUDE.md')
+        tools_dir = os.path.join(target_project_root, 'tools')
+        hook_command = os.path.join(tools_dir, 'tantivy-agent.py')
+
+        hook_config = f"""hooks:
+  PostToolUse:
+    - matcher: "Edit|Write|MultiEdit"
+      hooks:
+        - type: "command"
+          command: "{hook_command} hook-clear"
+"""
+
+        # Read existing config if it exists
+        existing_config = ""
+        if os.path.exists(claude_config_path):
+            with open(claude_config_path, 'r', encoding='utf-8') as f:
+                existing_config = f.read()
+
+        # Check if hooks are already configured
+        if "PostToolUse" in existing_config and "tantivy-agent" in existing_config:
+            print("ℹ️  Claude hooks already installed")
+            return
+
+        # Append hooks to config
+        with open(claude_config_path, 'a', encoding='utf-8') as f:
+            if existing_config and not existing_config.endswith('\n'):
+                f.write('\n')
+            f.write('\n# Tantivy Agent hooks\n')
+            f.write(hook_config)
+
+        print("✅ Claude hooks installed")
+
+    def _setup_gitignore(self, target_project_root):
+        """Setup .gitignore in target project"""
+        gitignore_path = os.path.join(target_project_root, '.gitignore')
+        gitignore_entries = [
+            "# Tantivy Agent data",
+            ".tantivy-data/",
+            "",
+            "# Tantivy Agent symlink (managed by installer)",
+            "!tools/tantivy-agent.py"
+        ]
+
+        if os.path.exists(gitignore_path):
+            with open(gitignore_path, 'r', encoding='utf-8') as f:
+                existing_content = f.read()
+
+            # Check if entries already exist
+            entries_to_add = []
+            for entry in gitignore_entries:
+                if entry and entry not in existing_content.splitlines():
+                    entries_to_add.append(entry)
+
+            if entries_to_add:
+                with open(gitignore_path, 'a', encoding='utf-8') as f:
+                    f.write('\n')
+                    for entry in entries_to_add:
+                        f.write(entry + '\n')
+                print("✅ Updated .gitignore")
+        else:
+            with open(gitignore_path, 'w', encoding='utf-8') as f:
+                for entry in gitignore_entries:
+                    f.write(entry + '\n')
+            print("✅ Created .gitignore")
 
     def _install_claude_hooks(self):
         """Install Claude Code hooks"""
@@ -617,6 +940,8 @@ Examples:
   python tantivy-agent.py search "config" --format csv -o search_results.csv
   python tantivy-agent.py clear
   python tantivy-agent.py install
+  python tantivy-agent.py install --target /path/to/project
+  python tantivy-agent.py install --target ../my-project --no-config
         """
     )
 
@@ -631,6 +956,8 @@ Examples:
     parser.add_argument('--format', choices=['json', 'csv', 'txt'],
                        help='Export results in specified format')
     parser.add_argument('--output', '-o', help='Output file for exported results')
+    parser.add_argument('--target', '-t', help='Target directory for installation (install command only)')
+    parser.add_argument('--no-config', action='store_true', help='Skip config creation (install command only)')
 
     args = parser.parse_args()
 
@@ -646,7 +973,8 @@ Examples:
     elif args.command == 'clear':
         agent.clear_command()
     elif args.command == 'install':
-        agent.install_command()
+        create_config = not args.no_config
+        agent.install_command(args.target, create_config)
     elif args.command == 'hook-clear':
         agent.hook_clear_command()
 
