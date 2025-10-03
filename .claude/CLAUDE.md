@@ -22,12 +22,7 @@
 - **Professional practices** - All functionality must be verifiable via automated tests
 
 ## Tantivy Agent hooks
-hooks:
-  PostToolUse:
-    - matcher: "Edit|Write|MultiEdit"
-      hooks:
-        - type: "command"
-          command: "/home/michael/work/projects/tantivi2agents/tantivy2agents.py hook-clear"
+Note: Hooks are now installed in .claude/settings.json, not here.
 
 ## 📋 DOCUMENTATION UPDATES
 

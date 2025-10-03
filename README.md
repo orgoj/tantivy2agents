@@ -162,15 +162,24 @@ python /path/to/tantivy2agents.py install --no-config
 
 ## Claude Code Integration
 
-When `auto_hook` is enabled, the agent automatically installs hooks in `.claude/CLAUDE.md`:
+When `auto_hook` is enabled, the agent automatically installs hooks in `.claude/settings.json`:
 
-```yaml
-hooks:
-  PostToolUse:
-    - matcher: "Edit|Write|MultiEdit"
-      hooks:
-        - type: "command"
-          command: "./tools/tantivy2agent hook-clear"
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./tools/tantivy2agents.py hook-clear"
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
 
 This ensures the index is automatically marked for updates when files are modified.

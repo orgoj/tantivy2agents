@@ -801,35 +801,50 @@ class TantivyAgent:
         claude_dir = os.path.join(target_project_root, '.claude')
         os.makedirs(claude_dir, exist_ok=True)
 
-        claude_config_path = os.path.join(claude_dir, 'CLAUDE.md')
+        settings_path = os.path.join(claude_dir, 'settings.json')
         tools_dir = os.path.join(target_project_root, 'tools')
         hook_command = os.path.join(tools_dir, 'tantivy2agents.py')
 
-        hook_config = f"""hooks:
-  PostToolUse:
-    - matcher: "Edit|Write|MultiEdit"
-      hooks:
-        - type: "command"
-          command: "{hook_command} hook-clear"
-"""
+        # Load existing settings or create new
+        settings = {}
+        if os.path.exists(settings_path):
+            with open(settings_path, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
 
-        # Read existing config if it exists
-        existing_config = ""
-        if os.path.exists(claude_config_path):
-            with open(claude_config_path, 'r', encoding='utf-8') as f:
-                existing_config = f.read()
+        # Add hooks configuration
+        if 'hooks' not in settings:
+            settings['hooks'] = {}
+        if 'PostToolUse' not in settings['hooks']:
+            settings['hooks']['PostToolUse'] = []
 
-        # Check if hooks are already configured
-        if "PostToolUse" in existing_config and "tantivy2agent" in existing_config:
+        # Check if hook already exists
+        existing_hook = None
+        for hook in settings['hooks']['PostToolUse']:
+            if 'hooks' in hook:
+                for subhook in hook['hooks']:
+                    if 'command' in subhook and 'tantivy2agent' in subhook['command']:
+                        existing_hook = hook
+                        break
+
+        if existing_hook:
             print("ℹ️  Claude hooks already installed")
             return
 
-        # Append hooks to config
-        with open(claude_config_path, 'a', encoding='utf-8') as f:
-            if existing_config and not existing_config.endswith('\n'):
-                f.write('\n')
-            f.write('\n# Tantivy Agent hooks\n')
-            f.write(hook_config)
+        # Add new hook
+        new_hook = {
+            "matcher": "Edit|Write|MultiEdit",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": f"{hook_command} hook-clear"
+                }
+            ]
+        }
+        settings['hooks']['PostToolUse'].append(new_hook)
+
+        # Write settings back
+        with open(settings_path, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, indent=2)
 
         print("✅ Claude hooks installed")
 
@@ -868,36 +883,51 @@ class TantivyAgent:
         claude_dir = os.path.join(self.project_root, '.claude')
         os.makedirs(claude_dir, exist_ok=True)
 
-        claude_config_path = os.path.join(claude_dir, 'CLAUDE.md')
+        settings_path = os.path.join(claude_dir, 'settings.json')
 
         # Find where this script is located
         script_path = os.path.abspath(__file__)
 
-        hook_config = f"""hooks:
-  PostToolUse:
-    - matcher: "Edit|Write|MultiEdit"
-      hooks:
-        - type: "command"
-          command: "{script_path} hook-clear"
-"""
+        # Load existing settings or create new
+        settings = {}
+        if os.path.exists(settings_path):
+            with open(settings_path, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
 
-        # Read existing config if it exists
-        existing_config = ""
-        if os.path.exists(claude_config_path):
-            with open(claude_config_path, 'r', encoding='utf-8') as f:
-                existing_config = f.read()
+        # Add hooks configuration
+        if 'hooks' not in settings:
+            settings['hooks'] = {}
+        if 'PostToolUse' not in settings['hooks']:
+            settings['hooks']['PostToolUse'] = []
 
-        # Check if hooks are already configured
-        if "PostToolUse" in existing_config and "tantivy2agent" in existing_config:
+        # Check if hook already exists
+        existing_hook = None
+        for hook in settings['hooks']['PostToolUse']:
+            if 'hooks' in hook:
+                for subhook in hook['hooks']:
+                    if 'command' in subhook and 'tantivy2agent' in subhook['command']:
+                        existing_hook = hook
+                        break
+
+        if existing_hook:
             print("ℹ️  Claude hooks already installed")
             return
 
-        # Append hooks to config
-        with open(claude_config_path, 'a', encoding='utf-8') as f:
-            if existing_config and not existing_config.endswith('\n'):
-                f.write('\n')
-            f.write('\n# Tantivy Agent hooks\n')
-            f.write(hook_config)
+        # Add new hook
+        new_hook = {
+            "matcher": "Edit|Write|MultiEdit",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": f"{script_path} hook-clear"
+                }
+            ]
+        }
+        settings['hooks']['PostToolUse'].append(new_hook)
+
+        # Write settings back
+        with open(settings_path, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, indent=2)
 
         print("✅ Claude hooks installed")
 
