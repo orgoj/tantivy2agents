@@ -32,9 +32,9 @@ def test_basic_functionality():
 
         try:
             # Copy agent script
-            agent_path = os.path.join(original_cwd, "tantivy-agent.py")
-            shutil.copy(agent_path, "./tantivy-agent.py")
-            os.chmod("./tantivy-agent.py", 0o755)
+            agent_path = os.path.join(original_cwd, "tantivy2agents.py")
+            shutil.copy(agent_path, "./tantivy2agents.py")
+            os.chmod("./tantivy2agents.py", 0o755)
 
             # Create test config
             config = {
@@ -77,19 +77,19 @@ Complete guide for testing functionality.
 """)
 
             # Test help command
-            result = subprocess.run(["python", "./tantivy-agent.py", "--help"],
+            result = subprocess.run(["python", "./tantivy2agents.py", "--help"],
                                   capture_output=True, text=True)
             if result.returncode != 0:
                 raise Exception("Help command failed")
 
             # Test install command
-            result = subprocess.run(["python", "./tantivy-agent.py", "install"],
+            result = subprocess.run(["python", "./tantivy2agents.py", "install"],
                                   capture_output=True, text=True)
             if result.returncode != 0:
                 raise Exception("Install command failed")
 
             # Test index command
-            result = subprocess.run(["python", "./tantivy-agent.py", "index"],
+            result = subprocess.run(["python", "./tantivy2agents.py", "index"],
                                   capture_output=True, text=True)
             if result.returncode != 0:
                 raise Exception("Index command failed")
@@ -98,7 +98,7 @@ Complete guide for testing functionality.
                 raise Exception("Indexing did not succeed")
 
             # Test search command
-            result = subprocess.run(["python", "./tantivy-agent.py", "search", "server"],
+            result = subprocess.run(["python", "./tantivy2agents.py", "search", "server"],
                                   capture_output=True, text=True)
             if result.returncode != 0:
                 raise Exception("Search command failed")
@@ -107,7 +107,7 @@ Complete guide for testing functionality.
                 raise Exception("Search did not find results")
 
             # Test clear command
-            result = subprocess.run(["python", "./tantivy-agent.py", "clear"],
+            result = subprocess.run(["python", "./tantivy2agents.py", "clear"],
                                   capture_output=True, text=True)
             if result.returncode != 0:
                 raise Exception("Clear command failed")
@@ -122,7 +122,7 @@ Complete guide for testing functionality.
 def test_config_loading():
     """Test configuration loading with defaults"""
     # Import the main class from the script
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy-agent.py")
+    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
     import importlib.util
     spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
     module = importlib.util.module_from_spec(spec)
@@ -147,7 +147,7 @@ def test_config_loading():
 def test_file_parsing():
     """Test markdown file parsing"""
     # Get the original script path
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy-agent.py")
+    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
     import importlib.util
     spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
     module = importlib.util.module_from_spec(spec)
@@ -187,7 +187,7 @@ This is the body content.
 def test_patterns():
     """Test file pattern matching"""
     # Get the original script path
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy-agent.py")
+    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
     import importlib.util
     spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
     module = importlib.util.module_from_spec(spec)
@@ -211,7 +211,7 @@ def test_patterns():
 
 def test_export_functionality():
     """Test result export functionality"""
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy-agent.py")
+    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
     import importlib.util
     spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
     module = importlib.util.module_from_spec(spec)
@@ -275,7 +275,7 @@ def test_export_functionality():
 
 def test_project_detection():
     """Test project type detection"""
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy-agent.py")
+    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
     import importlib.util
     spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
     module = importlib.util.module_from_spec(spec)
@@ -327,7 +327,7 @@ def test_project_detection():
 
 def test_glob_patterns():
     """Test glob pattern expansion"""
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy-agent.py")
+    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
     import importlib.util
     spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
     module = importlib.util.module_from_spec(spec)
@@ -385,7 +385,7 @@ def test_glob_patterns():
 
 def test_default_configs():
     """Test default configurations for different project types"""
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy-agent.py")
+    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
     import importlib.util
     spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
     module = importlib.util.module_from_spec(spec)
@@ -411,7 +411,7 @@ def test_default_configs():
 
 def test_install_functionality():
     """Test install functionality with symlink creation"""
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy-agent.py")
+    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
     import importlib.util
     spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
     module = importlib.util.module_from_spec(spec)
@@ -436,7 +436,7 @@ def test_install_functionality():
 
             # Check if symlink was created
             tools_dir = os.path.join(target_project, "tools")
-            symlink_path = os.path.join(tools_dir, "tantivy-agent.py")
+            symlink_path = os.path.join(tools_dir, "tantivy2agents.py")
             assert os.path.exists(symlink_path)
             assert os.path.islink(symlink_path)
 
@@ -459,7 +459,7 @@ def test_install_functionality():
             with open(gitignore_path, "r") as f:
                 content = f.read()
                 assert ".tantivy-data/" in content
-                assert "!tools/tantivy-agent.py" in content
+                assert "!tools/tantivy2agents.py" in content
 
         finally:
             os.chdir(os.path.dirname(temp_dir))

@@ -6,7 +6,7 @@ This script provides complete functionality for document indexing and search
 using Tantivy with flexible JSON configuration.
 
 Usage:
-    python tantivy-agent.py <command> [options]
+    python tantivy2agents.py <command> [options]
 
 Commands:
     index      - Create or update document index
@@ -54,7 +54,7 @@ class TantivyAgent:
         """Load configuration from JSON file with defaults"""
         default_config = {
             "version": "1.0",
-            "index_dir": ".tantivy-data",
+            "index_dir": ".tantivi2agents",
             "global_patterns": {
                 "include": ["*.md", "*.txt"],
                 "exclude": ["*.tmp", "*~", "*.bak"]
@@ -153,7 +153,7 @@ class TantivyAgent:
         """Get default configuration based on project type"""
         base_config = {
             "version": "1.0",
-            "index_dir": ".tantivy-data",
+            "index_dir": ".tantivi2agents",
             "global_patterns": {
                 "include": ["*.md", "*.txt", "*.rst"],
                 "exclude": ["*.tmp", "*~", "*.bak", "*.log"]
@@ -484,7 +484,7 @@ class TantivyAgent:
 
         print(f"✅ Successfully indexed {len(docs)} documents")
         print(f"📍 Index saved to: {index_dir}")
-        print("💡 You can now search with: python tantivy-agent.py search 'your query'")
+        print("💡 You can now search with: python tantivy2agents.py search 'your query'")
 
     def search_command(self, query, limit=None, format_output=None, output_file=None):
         """Search in indexed documents"""
@@ -496,7 +496,7 @@ class TantivyAgent:
         index_dir = os.path.join(data_dir, 'idx')
 
         if not os.path.exists(index_dir):
-            print("❌ Index not found. Run 'python tantivy-agent.py index' first")
+            print("❌ Index not found. Run 'python tantivy2agents.py index' first")
             return
 
         try:
@@ -722,8 +722,7 @@ class TantivyAgent:
             target_project_root = self.project_root
             print("🔧 Installing Tantivy Agent in current project...")
 
-        # Step 1: Create symlink
-        self._create_symlink(target_project_root)
+        # Step 1: Skip symlink creation (user will create it manually)
 
         # Step 2: Create default config if needed
         if create_config:
@@ -737,15 +736,15 @@ class TantivyAgent:
 
         print("✅ Installation complete!")
         print(f"💡 Tantivy Agent installed in {target_project_root}")
-        print(f"🔗 Symlink created: tools/tantivy-agent.py")
-        print("💡 Run './tools/tantivy-agent.py index' to create your first index")
+        print(f"💡 Create your own symlink: ln -s /path/to/tantivy2agents.py ./tools/tantivy2agent")
+        print("💡 Run './tools/tantivy2agents.py index' to create your first index")
 
     def _create_symlink(self, target_project_root):
-        """Create symlink to tantivy-agent.py in target project"""
+        """Create symlink to tantivy2agents.py in target project"""
         # Get current script location
         current_script = os.path.abspath(__file__)
         target_tools_dir = os.path.join(target_project_root, 'tools')
-        target_symlink = os.path.join(target_tools_dir, 'tantivy-agent.py')
+        target_symlink = os.path.join(target_tools_dir, 'tantivy2agents.py')
 
         # Create tools directory if it doesn't exist
         os.makedirs(target_tools_dir, exist_ok=True)
@@ -763,7 +762,7 @@ class TantivyAgent:
         # Create symlink
         try:
             os.symlink(current_script, target_symlink)
-            print(f"✅ Created symlink: {target_symlink}")
+            # Skipped symlink creation (user will create it manually)
         except OSError as e:
             print(f"❌ Failed to create symlink: {e}")
             print(f"💡 You can manually link: ln -s {current_script} {target_symlink}")
@@ -804,7 +803,7 @@ class TantivyAgent:
 
         claude_config_path = os.path.join(claude_dir, 'CLAUDE.md')
         tools_dir = os.path.join(target_project_root, 'tools')
-        hook_command = os.path.join(tools_dir, 'tantivy-agent.py')
+        hook_command = os.path.join(tools_dir, 'tantivy2agents.py')
 
         hook_config = f"""hooks:
   PostToolUse:
@@ -821,7 +820,7 @@ class TantivyAgent:
                 existing_config = f.read()
 
         # Check if hooks are already configured
-        if "PostToolUse" in existing_config and "tantivy-agent" in existing_config:
+        if "PostToolUse" in existing_config and "tantivy2agent" in existing_config:
             print("ℹ️  Claude hooks already installed")
             return
 
@@ -839,10 +838,7 @@ class TantivyAgent:
         gitignore_path = os.path.join(target_project_root, '.gitignore')
         gitignore_entries = [
             "# Tantivy Agent data",
-            ".tantivy-data/",
-            "",
-            "# Tantivy Agent symlink (managed by installer)",
-            "!tools/tantivy-agent.py"
+            ".tantivi2agents/"
         ]
 
         if os.path.exists(gitignore_path):
@@ -892,7 +888,7 @@ class TantivyAgent:
                 existing_config = f.read()
 
         # Check if hooks are already configured
-        if "PostToolUse" in existing_config and "tantivy-agent" in existing_config:
+        if "PostToolUse" in existing_config and "tantivy2agent" in existing_config:
             print("ℹ️  Claude hooks already installed")
             return
 
@@ -933,15 +929,15 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python tantivy-agent.py index
-  python tantivy-agent.py search "my query"
-  python tantivy-agent.py search "my query" --limit 5
-  python tantivy-agent.py search "server" --format json --output results.json
-  python tantivy-agent.py search "config" --format csv -o search_results.csv
-  python tantivy-agent.py clear
-  python tantivy-agent.py install
-  python tantivy-agent.py install --target /path/to/project
-  python tantivy-agent.py install --target ../my-project --no-config
+  python tantivy2agents.py index
+  python tantivy2agents.py search "my query"
+  python tantivy2agents.py search "my query" --limit 5
+  python tantivy2agents.py search "server" --format json --output results.json
+  python tantivy2agents.py search "config" --format csv -o search_results.csv
+  python tantivy2agents.py clear
+  python tantivy2agents.py install
+  python tantivy2agents.py install --target /path/to/project
+  python tantivy2agents.py install --target ../my-project --no-config
         """
     )
 

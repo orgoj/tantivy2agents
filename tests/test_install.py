@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 def import_tantivy_agent():
     """Import the TantivyAgent class"""
     import importlib.util
-    script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy-agent.py")
+    script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
     spec = importlib.util.spec_from_file_location("tantivy_agent", script_path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -187,7 +187,7 @@ def test_install_workflow():
 
     # Test symlink creation
     agent._create_symlink(target_project)
-    symlink_path = os.path.join(target_project, "tools", "tantivy-agent.py")
+    symlink_path = os.path.join(target_project, "tools", "tantivy2agents.py")
     symlink_exists = os.path.exists(symlink_path) and os.path.islink(symlink_path)
     results.append(("Symlink creation", symlink_exists))
 
@@ -214,7 +214,7 @@ def test_install_workflow():
         with open(gitignore_path, "r") as f:
             content = f.read()
             has_tantivy_data = ".tantivy-data/" in content
-            has_symlink_keep = "!tools/tantivy-agent.py" in content
+            has_symlink_keep = "!tools/tantivy2agents.py" in content
             results.append(("Gitignore content", has_tantivy_data and has_symlink_keep))
 
     # Test Claude hooks installation
@@ -226,7 +226,7 @@ def test_install_workflow():
     if claude_hooks_exist:
         with open(claude_config_path, "r") as f:
             content = f.read()
-            has_hooks = "PostToolUse" in content and "tantivy-agent" in content
+            has_hooks = "PostToolUse" in content and "tantivy2agent" in content
             results.append(("Claude hooks content", has_hooks))
 
     return results

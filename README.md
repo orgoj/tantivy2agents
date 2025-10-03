@@ -19,22 +19,23 @@ The Tantivy Agent can automatically install itself in any project:
 
 ```bash
 # Install in current project (auto-detects project type)
-python /path/to/tantivi2agents/tantivy-agent.py install
+python /path/to/tantivi2agents/tantivy2agents.py install
 
 # Install in specific target directory
-python /path/to/tantivi2agents/tantivy-agent.py install --target /path/to/project
+python /path/to/tantivi2agents/tantivy2agents.py install --target /path/to/project
 
 # Install without creating default config
-python /path/to/tantivi2agents/tantivy-agent.py install --no-config
+python /path/to/tantivi2agents/tantivy2agents.py install --no-config
 ```
 
 ### Manual Installation
 
-#### 1. Link to Your Project
+#### 1. Link to Your Project (Optional)
 
 ```bash
-# In your project directory
-ln -s /path/to/tantivi2agents/tantivy-agent.py ./tools/tantivy-agent.py
+# In your project directory - create your preferred command name
+ln -s /path/to/tantivi2agents/tantivy2agents.py ./tools/tantivy2agent
+# or any other name you prefer
 ```
 
 #### 2. Create Configuration
@@ -48,22 +49,22 @@ cp /path/to/tantivi2agents/examples/.tantivi2agents.json ./
 #### 3. Install Hooks and Create Index
 
 ```bash
-./tools/tantivy-agent.py install
-./tools/tantivy-agent.py index
+./tools/tantivy2agent install
+./tools/tantivy2agent index
 ```
 
 #### 4. Search Your Documents
 
 ```bash
-./tools/tantivy-agent.py search "your query"
-./tools/tantivy-agent.py search "server configuration" --limit 5
+./tools/tantivy2agent search "your query"
+./tools/tantivy2agent search "server configuration" --limit 5
 ```
 
 ## Configuration
 
 ### Smart Auto-Configuration
 
-When you run `python tantivy-agent.py install`, the agent automatically:
+When you run `python tantivy2agents.py install`, the agent automatically:
 
 1. **Detects project type** (Python, Node.js, Java, or Generic)
 2. **Creates optimal configuration** based on project structure
@@ -132,31 +133,31 @@ The `.tantivi2agents.json` file controls all behavior:
 
 ```bash
 # Create or update index
-./tools/tantivy-agent.py index
-./tools/tantivy-agent.py index --force  # Force rebuild
+./tools/tantivy2agent index
+./tools/tantivy2agent index --force  # Force rebuild
 
 # Search documents
-./tools/tantivy-agent.py search "query"
-./tools/tantivy-agent.py search "query" --limit 5
+./tools/tantivy2agent search "query"
+./tools/tantivy2agent search "query" --limit 5
 
 # Export search results
-./tools/tantivy-agent.py search "server" --format json --output results.json
-./tools/tantivy-agent.py search "config" --format csv -o analysis.csv
+./tools/tantivy2agent search "server" --format json --output results.json
+./tools/tantivy2agent search "config" --format csv -o analysis.csv
 
 # Clear index
-./tools/tantivy-agent.py clear
+./tools/tantivy2agent clear
 
 # Install Tantivy Agent (smart auto-configuration)
-./tools/tantivy-agent.py install
+./tools/tantivy2agent install
 
 # Install in specific target directory
-python /path/to/tantivy-agent.py install --target /path/to/project
+python /path/to/tantivy2agents.py install --target /path/to/project
 
 # Install without creating default config
-python /path/to/tantivy-agent.py install --no-config
+python /path/to/tantivy2agents.py install --no-config
 
 # Hook command (used automatically by Claude)
-./tools/tantivy-agent.py hook-clear
+./tools/tantivy2agent hook-clear
 ```
 
 ## Claude Code Integration
@@ -169,7 +170,7 @@ hooks:
     - matcher: "Edit|Write|MultiEdit"
       hooks:
         - type: "command"
-          command: "./tools/tantivy-agent.py hook-clear"
+          command: "./tools/tantivy2agent hook-clear"
 ```
 
 This ensures the index is automatically marked for updates when files are modified.
@@ -226,7 +227,7 @@ This ensures the index is automatically marked for updates when files are modifi
 Searches across all configured fields with field-specific weights:
 
 ```bash
-./tools/tantivy-agent.py search "server configuration"
+./tools/tantivy2agent search "server configuration"
 ```
 
 ### Export Search Results
@@ -235,16 +236,16 @@ Export search results in multiple formats:
 
 ```bash
 # JSON export (structured data)
-./tools/tantivy-agent.py search "server" --format json --output results.json
+./tools/tantivy2agent search "server" --format json --output results.json
 
 # CSV export (spreadsheet compatible)
-./tools/tantivy-agent.py search "config" --format csv -o search_results.csv
+./tools/tantivy2agent search "config" --format csv -o search_results.csv
 
 # Text export (human readable)
-./tools/tantivy-agent.py search "guide" --format txt --output guide_results.txt
+./tools/tantivy2agent search "guide" --format txt --output guide_results.txt
 
 # Export to terminal (no file specified)
-./tools/tantivy-agent.py search "server" --format json
+./tools/tantivy2agent search "server" --format json
 ```
 
 ### Export Formats
@@ -300,7 +301,7 @@ The agent automatically adds the data directory to `.gitignore`:
 
 ```
 # Tantivy Agent data
-.tantivy-data/
+.tantivi2agents/
 ```
 
 ### Incremental Indexing
@@ -310,16 +311,15 @@ The agent tracks file modification times and only rebuilds the index when:
 - Files are added or removed
 - Force rebuild is requested (`--force` flag)
 
-## Migration from Original Scripts
+## Command Summary
 
-If you're migrating from the original 4-script setup:
-
-| Original Script | New Command |
-|-----------------|-------------|
-| `./bin/tantivy-index` | `./tools/tantivy-agent.py index` |
-| `./bin/tantivy-search "query"` | `./tools/tantivy-agent.py search "query"` |
-| `./bin/tantivy-clear` | `./tools/tantivy-agent.py clear` |
-| `./bin/tantivy-hook` | Automatic via Claude hooks |
+| Command | Description |
+|---------|-------------|
+| `./tools/tantivy2agent index` | Create or update document index |
+| `./tools/tantivy2agent search "query"` | Search in indexed documents |
+| `./tools/tantivy2agent clear` | Clear the index |
+| `./tools/tantivy2agent install` | Install Tantivy Agent with auto-configuration |
+| `./tools/tantivy2agent hook-clear` | Clear index (used by Claude hooks) |
 
 ## Requirements
 
@@ -335,7 +335,7 @@ pip install -r requirements.txt
 
 ### Index Not Found
 ```
-❌ Index not found. Run 'python tantivy-agent.py index' first
+❌ Index not found. Run './tools/tantivy2agent index' first
 ```
 Solution: Create the index with the `index` command.
 

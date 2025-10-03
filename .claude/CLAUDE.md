@@ -27,7 +27,7 @@ hooks:
     - matcher: "Edit|Write|MultiEdit"
       hooks:
         - type: "command"
-          command: "/home/michael/work/projects/tantivi2agents/tantivy-agent.py hook-clear"
+          command: "/home/michael/work/projects/tantivi2agents/tantivy2agents.py hook-clear"
 
 ## 📋 DOCUMENTATION UPDATES
 
