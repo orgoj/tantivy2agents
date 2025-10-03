@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# Clear tantivy index when documentation is modified
+# Used by Claude Code hooks to invalidate search index
+
+# Get repository root directory from script location
+SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Only clear if .tantivy directory exists
+if [[ -d "${REPO_ROOT}/.tantivy" ]]; then
+    rm -rf "${REPO_ROOT}/.tantivy/"
+    echo "Tantivy index cleared in ${REPO_ROOT}"
+else
+    echo "Tantivy index not found in ${REPO_ROOT}, nothing to clear"
+fi
