@@ -1,0 +1,14 @@
+[tools]
+gitleaks = "latest"
+"npm:@anthropic-ai/claude-code" = "latest"
+pre-commit = "latest"
+python = "3.13"
+sops = "latest"
+yq = "4.47.2"
+
+[env]
+# Install seed packages (pip, setuptools, and wheel) into the virtual environment.
+_.python.venv = { path = ".venv", create = true, uv_create_args = ['--seed'] }
+
+[tasks.install]
+run="pip install -r requirements.txt"

@@ -3,3 +3,8 @@
 
 # Test directory
 tmp/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
