@@ -9,11 +9,12 @@ Usage:
     python tantivy2agents.py <command> [options]
 
 Commands:
-    index      - Create or update document index
-    search     - Search in indexed documents
-    clear      - Clear the index
-    install    - Install Claude hooks and setup
-    hook-clear - Clear index (used by Claude hooks)
+    index        - Create or update document index
+    search       - Search in indexed documents
+    clear        - Clear the index
+    install      - Install Claude hooks and setup
+    hook-clear   - Clear index (used by Claude hooks)
+    encoding-info - Analyze file encodings in project
 """
 
 import os
@@ -30,6 +31,11 @@ from pathlib import Path
 import glob
 import fnmatch
 import tantivy
+try:
+    from charset_normalizer import detect
+except ImportError:
+    detect = None
+    print("Warning: charset_normalizer not installed. Encoding detection will be limited to UTF-8.")
 
 
 class TantivyAgent:
@@ -54,7 +60,7 @@ class TantivyAgent:
         """Load configuration from JSON file with defaults"""
         default_config = {
             "version": "1.0",
-            "index_dir": ".tantivi2agents",
+            "index_dir": ".tantivy-data",
             "global_patterns": {
                 "include": ["*.md", "*.txt"],
                 "exclude": ["*.tmp", "*~", "*.bak"]
@@ -70,6 +76,17 @@ class TantivyAgent:
             "search": {
                 "default_limit": 10,
                 "hide_incidents": True
+            },
+            "encoding": {
+                "default_encoding": "utf-8",
+                "auto_detect": True,
+                "fallback_encodings": ["utf-8", "cp1252", "iso-8859-1", "cp1250", "cp1251"],
+                "file_specific_encodings": {
+                    "*.txt": "utf-8",
+                    "*.md": "utf-8"
+                },
+                "binary_extensions": ["*.jpg", "*.jpeg", "*.png", "*.gif", "*.bmp", "*.svg", "*.pdf", "*.zip", "*.tar", "*.gz", "*.rar", "*.exe", "*.dll", "*.so", "*.dylib"],
+                "detection_confidence_threshold": 0.7
             },
             "auto_hook": True
         }
@@ -153,7 +170,7 @@ class TantivyAgent:
         """Get default configuration based on project type"""
         base_config = {
             "version": "1.0",
-            "index_dir": ".tantivi2agents",
+            "index_dir": ".tantivy-data",
             "global_patterns": {
                 "include": ["*.md", "*.txt", "*.rst"],
                 "exclude": ["*.tmp", "*~", "*.bak", "*.log"]
@@ -276,9 +293,10 @@ class TantivyAgent:
 
         return expanded_paths
 
-    def _get_files_for_indexing(self):
+    def _get_files_for_indexing(self, show_dirs=False, show_files=False):
         """Get list of files to index based on configuration with glob pattern support"""
         files = []
+        dirs_processed = []
 
         # First expand glob patterns in index_dirs
         expanded_dirs = self._expand_glob_patterns(self.config['index_dirs'])
@@ -296,6 +314,10 @@ class TantivyAgent:
             if not os.path.exists(full_dir_path):
                 continue
 
+            # Track directories being processed
+            if show_dirs:
+                dirs_processed.append(full_dir_path)
+
             if dir_config.get('type') == 'file':
                 # Single file
                 rel_path = os.path.relpath(full_dir_path, self.project_root)
@@ -305,7 +327,21 @@ class TantivyAgent:
                 excluded = any(self._match_pattern(rel_path, pattern) for pattern in exclude_patterns)
 
                 if included and not excluded:
-                    files.append(full_dir_path)
+                    # Check if file is binary before adding
+                    try:
+                        with open(full_dir_path, 'rb') as f:
+                            content_bytes = f.read()
+                        if not self._is_binary_file(full_dir_path, content_bytes):
+                            files.append(full_dir_path)
+                            # Show files if requested
+                            if show_files:
+                                print(f"📄 {rel_path}")
+                        else:
+                            # Skip binary files silently
+                            pass
+                    except Exception:
+                        # If we can't read the file, skip it
+                        pass
             else:
                 # Directory - walk through it
                 for root, dirs, filenames in os.walk(full_dir_path):
@@ -320,20 +356,167 @@ class TantivyAgent:
                         excluded = any(self._match_pattern(rel_path, pattern) for pattern in exclude_patterns)
 
                         if included and not excluded:
-                            files.append(file_path)
+                            # Check if file is binary before adding
+                            try:
+                                with open(file_path, 'rb') as f:
+                                    content_bytes = f.read()
+                                if not self._is_binary_file(file_path, content_bytes):
+                                    files.append(file_path)
+                                    # Show files if requested
+                                    if show_files:
+                                        print(f"📄 {rel_path}")
+                                else:
+                                    # Skip binary files silently
+                                    pass
+                            except Exception:
+                                # If we can't read the file, skip it
+                                pass
 
-        return files
+        # Show directories if requested
+        if show_dirs:
+            print("📂 Directories to be processed:")
+            for dir_path in dirs_processed:
+                rel_dir = os.path.relpath(dir_path, self.project_root)
+                print(f"📁 {rel_dir}")
+
+        return files, dirs_processed
 
     def _match_pattern(self, path, pattern):
         """Simple glob pattern matching"""
         import fnmatch
         return fnmatch.fnmatch(path, pattern)
 
+    def _is_binary_file(self, file_path, content_bytes=None):
+        """Check if file is binary based on extension and content"""
+        encoding_config = self.config.get('encoding', {})
+
+        # Check file extension
+        binary_extensions = encoding_config.get('binary_extensions', [])
+        filename = os.path.basename(file_path)
+
+        for ext in binary_extensions:
+            if fnmatch.fnmatch(filename.lower(), ext.lower()):
+                return True
+
+        # If content is provided, do binary content detection
+        if content_bytes:
+            # Check for null bytes (common in binary files)
+            if b'\x00' in content_bytes:
+                return True
+
+            # Check for high ratio of non-printable characters
+            try:
+                # Try to decode as UTF-8 to see if it contains mostly text
+                content_bytes.decode('utf-8')
+                return False
+            except UnicodeDecodeError:
+                # If it can't be decoded as UTF-8 and has many non-text bytes, likely binary
+                text_chars = len([b for b in content_bytes if 32 <= b <= 126 or b in [9, 10, 13]])
+                if len(content_bytes) > 0 and text_chars / len(content_bytes) < 0.7:
+                    return True
+
+        return False
+
+    def _get_encoding_for_file(self, file_path):
+        """Get configured encoding for a specific file based on patterns"""
+        encoding_config = self.config.get('encoding', {})
+        file_specific = encoding_config.get('file_specific_encodings', {})
+        filename = os.path.basename(file_path)
+        rel_path = os.path.relpath(file_path, self.project_root)
+
+        # Check file-specific patterns (try both relative path and filename)
+        # Sort patterns by length (longer/more specific patterns first)
+        sorted_patterns = sorted(file_specific.items(), key=lambda x: len(x[0]), reverse=True)
+        for pattern, encoding in sorted_patterns:
+            if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(filename.lower(), pattern.lower()):
+                return encoding
+
+        # Check directory-specific patterns (if implemented in future)
+        # This could be extended to support directory-based encoding rules
+
+        return encoding_config.get('default_encoding', 'utf-8')
+
+    def _detect_encoding(self, file_path, content_bytes):
+        """Detect encoding of file content using multiple strategies"""
+        encoding_config = self.config.get('encoding', {})
+
+        # If auto-detection is disabled, use configured encoding
+        if not encoding_config.get('auto_detect', True):
+            return self._get_encoding_for_file(file_path)
+
+        # First try charset_normalizer if available
+        if detect:
+            try:
+                result = detect(content_bytes)
+                confidence = result.get('confidence', 0)
+                detected_encoding = result.get('encoding', 'utf-8')
+
+                threshold = encoding_config.get('detection_confidence_threshold', 0.7)
+                if confidence >= threshold:
+                    return detected_encoding
+                elif confidence > 0.3:  # Lower confidence but still usable
+                    # We'll try this encoding but have fallbacks ready
+                    return detected_encoding
+            except Exception:
+                pass  # Fall back to other methods
+
+        # Fall back to configured encoding
+        return self._get_encoding_for_file(file_path)
+
+    def _read_file_with_encoding_detection(self, file_path):
+        """Read file with automatic encoding detection and conversion to UTF-8"""
+        try:
+            # First read as bytes
+            with open(file_path, 'rb') as f:
+                content_bytes = f.read()
+
+            # Check if it's a binary file
+            if self._is_binary_file(file_path, content_bytes):
+                return None, "binary"
+
+            # Detect encoding
+            detected_encoding = self._detect_encoding(file_path, content_bytes)
+            encoding_config = self.config.get('encoding', {})
+            fallback_encodings = encoding_config.get('fallback_encodings', ['utf-8'])
+
+            # Try detected encoding first
+            encodings_to_try = [detected_encoding] + [enc for enc in fallback_encodings if enc != detected_encoding]
+
+            for encoding in encodings_to_try:
+                try:
+                    content = content_bytes.decode(encoding)
+                    return content, encoding
+                except (UnicodeDecodeError, LookupError):
+                    continue
+
+            # Last resort: try UTF-8 with error replacement
+            try:
+                content = content_bytes.decode('utf-8', errors='replace')
+                return content, 'utf-8-replace'
+            except Exception:
+                return None, "failed"
+
+        except Exception as e:
+            return None, f"error: {str(e)}"
+
     def _parse_markdown(self, file_path):
         """Parse markdown file and extract metadata"""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            content, encoding_info = self._read_file_with_encoding_detection(file_path)
+
+            if content is None:
+                if encoding_info == "binary":
+                    # Skip binary files silently
+                    return None
+                else:
+                    # Report reading errors
+                    print(f"Error reading {file_path}: {encoding_info}")
+                    return None
+
+            # Log encoding detection for debugging (only if not UTF-8)
+            if encoding_info != 'utf-8':
+                print(f"📖 {os.path.relpath(file_path, self.project_root)}: detected encoding {encoding_info}")
+
         except Exception as e:
             print(f"Error reading {file_path}: {e}")
             return None
@@ -422,7 +605,7 @@ class TantivyAgent:
         except:
             return True
 
-    def index_command(self, force=False):
+    def index_command(self, force=False, show_dirs=False, show_files=False):
         """Create or update document index"""
         print("🔍 Starting document indexing...")
 
@@ -436,7 +619,7 @@ class TantivyAgent:
             return
 
         # Get files to index
-        files = self._get_files_for_indexing()
+        files, dirs_processed = self._get_files_for_indexing(show_dirs, show_files)
         if not files:
             print("⚠️  No files found to index")
             return
@@ -853,7 +1036,8 @@ class TantivyAgent:
         gitignore_path = os.path.join(target_project_root, '.gitignore')
         gitignore_entries = [
             "# Tantivy Agent data",
-            ".tantivi2agents/"
+            f"{self.config['index_dir']}/",
+            "!tools/tantivy2agents.py"
         ]
 
         if os.path.exists(gitignore_path):
@@ -951,6 +1135,99 @@ class TantivyAgent:
                 # No index info, remove directory
                 shutil.rmtree(data_dir)
 
+    def encoding_info_command(self):
+        """Show encoding information for files that would be indexed"""
+        print("🔍 Analyzing file encodings...")
+
+        # Get files to index
+        files, dirs_processed = self._get_files_for_indexing(show_dirs=False, show_files=False)
+        if not files:
+            print("⚠️  No files found to analyze")
+            return
+
+        print(f"📁 Analyzing {len(files)} files...")
+        print()
+
+        encoding_stats = {}
+        problem_files = []
+        binary_files = []
+
+        for file_path in files:
+            rel_path = os.path.relpath(file_path, self.project_root)
+
+            try:
+                with open(file_path, 'rb') as f:
+                    content_bytes = f.read()
+
+                # Check if binary
+                if self._is_binary_file(file_path, content_bytes):
+                    binary_files.append(rel_path)
+                    continue
+
+                # Detect encoding
+                detected_encoding = self._detect_encoding(file_path, content_bytes)
+
+                # Try to read with detected encoding
+                success = False
+                try:
+                    content = content_bytes.decode(detected_encoding)
+                    success = True
+                except (UnicodeDecodeError, LookupError):
+                    # Try fallback encodings
+                    encoding_config = self.config.get('encoding', {})
+                    fallback_encodings = encoding_config.get('fallback_encodings', ['utf-8'])
+
+                    for encoding in fallback_encodings:
+                        if encoding == detected_encoding:
+                            continue
+                        try:
+                            content = content_bytes.decode(encoding)
+                            detected_encoding = f"{detected_encoding}→{encoding}"
+                            success = True
+                            break
+                        except (UnicodeDecodeError, LookupError):
+                            continue
+
+                if success:
+                    encoding_stats[detected_encoding] = encoding_stats.get(detected_encoding, 0) + 1
+                    if detected_encoding != 'utf-8':
+                        print(f"📄 {rel_path}")
+                        print(f"   Encoding: {detected_encoding}")
+                        print(f"   Size: {len(content_bytes)} bytes")
+                        print()
+                else:
+                    problem_files.append(rel_path)
+
+            except Exception as e:
+                problem_files.append(f"{rel_path} (error: {str(e)})")
+
+        # Show summary
+        print("📊 Encoding Summary:")
+        print("=" * 40)
+        for encoding, count in sorted(encoding_stats.items()):
+            print(f"{encoding:20} : {count:3} files")
+
+        if binary_files:
+            print(f"\n🚫 Binary files skipped: {len(binary_files)}")
+            if len(binary_files) <= 5:
+                for file in binary_files:
+                    print(f"   {file}")
+            else:
+                for file in binary_files[:3]:
+                    print(f"   {file}")
+                print(f"   ... and {len(binary_files) - 3} more")
+
+        if problem_files:
+            print(f"\n❌ Problem files: {len(problem_files)}")
+            for file in problem_files[:10]:
+                print(f"   {file}")
+            if len(problem_files) > 10:
+                print(f"   ... and {len(problem_files) - 10} more")
+
+        print(f"\n💡 Configuration: {self.config_path}")
+        print(f"   Auto-detect: {self.config.get('encoding', {}).get('auto_detect', True)}")
+        print(f"   Confidence threshold: {self.config.get('encoding', {}).get('detection_confidence_threshold', 0.7)}")
+
 
 def main():
     """Main entry point"""
@@ -972,7 +1249,7 @@ Examples:
     )
 
     parser.add_argument('command',
-                       choices=['index', 'search', 'clear', 'install', 'hook-clear'],
+                       choices=['index', 'search', 'clear', 'install', 'hook-clear', 'encoding-info'],
                        help='Command to execute')
 
     parser.add_argument('query', nargs='*', help='Search query (for search command)')
@@ -984,6 +1261,8 @@ Examples:
     parser.add_argument('--output', '-o', help='Output file for exported results')
     parser.add_argument('--target', '-t', help='Target directory for installation (install command only)')
     parser.add_argument('--no-config', action='store_true', help='Skip config creation (install command only)')
+    parser.add_argument('--dirs', action='store_true', help='Show directories that will be processed')
+    parser.add_argument('--files', action='store_true', help='Show files that will be processed')
 
     args = parser.parse_args()
 
@@ -992,7 +1271,7 @@ Examples:
 
     # Execute command
     if args.command == 'index':
-        agent.index_command(force=args.force)
+        agent.index_command(force=args.force, show_dirs=args.dirs, show_files=args.files)
     elif args.command == 'search':
         query = ' '.join(args.query) if args.query else ''
         agent.search_command(query, args.limit, args.format, args.output)
@@ -1003,6 +1282,8 @@ Examples:
         agent.install_command(args.target, create_config)
     elif args.command == 'hook-clear':
         agent.hook_clear_command()
+    elif args.command == 'encoding-info':
+        agent.encoding_info_command()
 
 
 if __name__ == "__main__":

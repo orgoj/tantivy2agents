@@ -135,6 +135,8 @@ The `.tantivi2agents.json` file controls all behavior:
 # Create or update index
 ./tools/tantivy2agent index
 ./tools/tantivy2agent index --force  # Force rebuild
+./tools/tantivy2agent index --dirs   # Show directories to be processed
+./tools/tantivy2agent index --files  # Show files to be processed
 
 # Search documents
 ./tools/tantivy2agent search "query"
@@ -324,16 +326,84 @@ The agent tracks file modification times and only rebuilds the index when:
 
 | Command | Description |
 |---------|-------------|
-| `./tools/tantivy2agent index` | Create or update document index |
+| `./tools/tantivy2agent index` | Create or update document index (use --dirs/--files for diagnostics) |
 | `./tools/tantivy2agent search "query"` | Search in indexed documents |
 | `./tools/tantivy2agent clear` | Clear the index |
 | `./tools/tantivy2agent install` | Install Tantivy Agent with auto-configuration |
 | `./tools/tantivy2agent hook-clear` | Clear index (used by Claude hooks) |
+| `./tools/tantivy2agent encoding-info` | Analyze file encodings in project |
+
+## File Encoding Support
+
+The Tantivy Agent supports automatic detection and conversion of different file encodings to UTF-8 for indexing.
+
+### Automatic Encoding Detection
+
+- **Smart detection**: Uses `charset_normalizer` library for reliable encoding detection
+- **Fallback support**: Multiple encoding fallbacks for problematic files
+- **Binary file exclusion**: Automatically skips binary files (images, PDFs, executables)
+- **Configurable settings**: Granular control per file type and directory
+
+### Encoding Configuration
+
+Add encoding settings to your `.tantivi2agents.json`:
+
+```json
+{
+  "encoding": {
+    "default_encoding": "utf-8",
+    "auto_detect": true,
+    "fallback_encodings": ["utf-8", "cp1252", "iso-8859-1", "cp1250", "cp1251"],
+    "file_specific_encodings": {
+      "*.txt": "utf-8",
+      "*.md": "utf-8",
+      "legacy/*.txt": "cp1252"
+    },
+    "binary_extensions": ["*.jpg", "*.png", "*.gif", "*.pdf", "*.zip"],
+    "detection_confidence_threshold": 0.7
+  }
+}
+```
+
+### Encoding Options
+
+- **default_encoding**: Fallback encoding when auto-detection fails
+- **auto_detect**: Enable/disable automatic encoding detection
+- **fallback_encodings**: List of encodings to try when detection fails
+- **file_specific_encodings**: Encoding rules for specific file patterns
+- **binary_extensions**: File extensions to treat as binary and skip
+- **detection_confidence_threshold**: Minimum confidence for auto-detection (0.0-1.0)
+
+### Encoding Diagnostics
+
+Analyze file encodings in your project:
+
+```bash
+# Show encoding information for all files
+./tools/tantivy2agent encoding-info
+
+# See which files use non-UTF-8 encodings
+./tools/tantivy2agent encoding-info
+```
+
+The `encoding-info` command shows:
+- Files with non-UTF-8 encodings
+- Encoding detection statistics
+- Binary files that will be skipped
+- Files with encoding issues
+
+### Supported Encodings
+
+Common legacy encodings supported:
+- **Windows**: cp1252 (Western European), cp1250 (Central European)
+- **ISO**: iso-8859-1, iso-8859-2, iso-8859-15
+- **Unicode**: utf-8, utf-16, utf-32
+- **Asian**: cp932 (Japanese), gb2312 (Chinese), euc-kr (Korean)
 
 ## Requirements
 
 - Python 3.8+
-- Dependencies: `PyYAML`, `tantivy`
+- Dependencies: `PyYAML`, `tantivy`, `charset-normalizer`
 
 Install with:
 ```bash

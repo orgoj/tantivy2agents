@@ -1,2 +1,3 @@
 PyYAML==6.0.2
 tantivy==0.24.0
+charset-normalizer==3.3.2

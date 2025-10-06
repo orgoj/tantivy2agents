@@ -219,7 +219,7 @@ def test_install_workflow():
 
     # Test Claude hooks installation
     agent._install_claude_hooks_in_target(target_project)
-    claude_config_path = os.path.join(target_project, ".claude", "CLAUDE.md")
+    claude_config_path = os.path.join(target_project, ".claude", "settings.json")
     claude_hooks_exist = os.path.exists(claude_config_path)
     results.append(("Claude hooks installation", claude_hooks_exist))
 
