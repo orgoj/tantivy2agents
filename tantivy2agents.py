@@ -69,27 +69,27 @@ class TantivyAgent:
                 ".",
                 {
                     "path": ".git",
-                    "exclude": true
+                    "exclude": True
                 },
                 {
                     "path": "node_modules",
-                    "exclude": true
+                    "exclude": True
                 },
                 {
                     "path": ".venv",
-                    "exclude": true
+                    "exclude": True
                 },
                 {
                     "path": "target",
-                    "exclude": true
+                    "exclude": True
                 },
                 {
                     "path": "dist",
-                    "exclude": true
+                    "exclude": True
                 },
                 {
                     "path": "build",
-                    "exclude": true
+                    "exclude": True
                 }
             ],
             "schema_fields": {
