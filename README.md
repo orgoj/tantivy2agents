@@ -158,6 +158,9 @@ python /path/to/tantivy2agents.py install --target /path/to/project
 # Install without creating default config
 python /path/to/tantivy2agents.py install --no-config
 
+# Setup bash script for system-wide access
+python /path/to/tantivy2agents.py setup
+
 # Hook command (used automatically by Claude)
 ./tools/tantivy2agent hook-clear
 ```
@@ -332,6 +335,60 @@ The agent tracks file modification times and only rebuilds the index when:
 | `./tools/tantivy2agent install` | Install Tantivy Agent with auto-configuration |
 | `./tools/tantivy2agent hook-clear` | Clear index (used by Claude hooks) |
 | `./tools/tantivy2agent encoding-info` | Analyze file encodings in project |
+| `python tantivy2agents.py setup` | Create bash script in ~/bin for system-wide access |
+
+## System-wide Setup
+
+### Setup Command
+
+The `setup` command creates a bash script in your `~/bin/` directory for system-wide access to Tantivy Agent:
+
+```bash
+# Run from the tantivy2agents project directory
+python tantivy2agents.py setup
+```
+
+### What Setup Does
+
+The setup command automatically:
+
+1. **Creates Virtual Environment**
+   - Creates `.venv/` directory in the project folder
+   - Installs all required dependencies from `requirements.txt`
+   - Uses isolated Python environment to avoid conflicts
+
+2. **Creates Bash Script**
+   - Installs `tantivy2agents` script in `~/bin/`
+   - Script automatically uses the virtual environment's Python
+   - Makes the script executable
+
+3. **PATH Configuration**
+   - Checks if `~/bin/` is in your PATH
+   - Provides instructions if `~/bin/` is not accessible
+
+### After Setup
+
+Once setup is complete, you can use Tantivy Agent from anywhere:
+
+```bash
+# From any directory
+tantivy2agents index
+tantivy2agents search "my query"
+tantivy2agents install
+```
+
+### Manual PATH Setup
+
+If `~/bin/` is not in your PATH, add this line to your `~/.bashrc` or `~/.zshrc`:
+
+```bash
+export PATH="$PATH:~/bin"
+```
+
+Then restart your terminal or run:
+```bash
+source ~/.bashrc  # or source ~/.zshrc
+```
 
 ## File Encoding Support
 

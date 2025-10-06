@@ -1228,6 +1228,104 @@ class TantivyAgent:
         print(f"   Auto-detect: {self.config.get('encoding', {}).get('auto_detect', True)}")
         print(f"   Confidence threshold: {self.config.get('encoding', {}).get('detection_confidence_threshold', 0.7)}")
 
+    def setup_command(self):
+        """Setup command to install bash script to ~/bin"""
+        import stat
+
+        # Get the directory where tantivy2agents.py is located
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Check if virtual environment exists in current project
+        venv_python = os.path.join(script_dir, '.venv', 'bin', 'python')
+        if not os.path.exists(venv_python):
+            print("🔧 Creating virtual environment...")
+            try:
+                subprocess.run([sys.executable, '-m', 'venv', '.venv'],
+                             cwd=script_dir, check=True)
+                print("✅ Virtual environment created")
+            except subprocess.CalledProcessError as e:
+                print(f"❌ Failed to create virtual environment: {e}")
+                return
+
+            # Install dependencies
+            requirements_file = os.path.join(script_dir, 'requirements.txt')
+            if os.path.exists(requirements_file):
+                print("📦 Installing dependencies...")
+                try:
+                    subprocess.run([venv_python, '-m', 'pip', 'install', '-r', requirements_file],
+                                 cwd=script_dir, check=True)
+                    print("✅ Dependencies installed")
+                except subprocess.CalledProcessError as e:
+                    print(f"❌ Failed to install dependencies: {e}")
+                    return
+            else:
+                print("⚠️ No requirements.txt found, installing basic dependencies...")
+                try:
+                    subprocess.run([venv_python, '-m', 'pip', 'install', 'PyYAML', 'tantivy', 'charset-normalizer'],
+                                 cwd=script_dir, check=True)
+                    print("✅ Basic dependencies installed")
+                except subprocess.CalledProcessError as e:
+                    print(f"❌ Failed to install dependencies: {e}")
+                    return
+        else:
+            print(f"✅ Virtual environment already exists: {venv_python}")
+
+            # Verify that the python in venv is working
+            try:
+                result = subprocess.run([venv_python, '--version'],
+                                      capture_output=True, text=True, check=True)
+                print(f"✅ Virtual environment Python: {result.stdout.strip()}")
+            except subprocess.CalledProcessError as e:
+                print(f"❌ Virtual environment Python not working: {e}")
+                return
+
+        # Ensure ~/bin directory exists
+        bin_dir = os.path.expanduser('~/bin')
+        os.makedirs(bin_dir, exist_ok=True)
+
+        # Create bash script
+        script_path = os.path.join(bin_dir, 'tantivy2agents')
+        script_content = f'''#!/bin/bash
+PROJECT_DIR="{script_dir}"
+
+if [ -f "$PROJECT_DIR/.venv/bin/python" ]; then
+    "$PROJECT_DIR/.venv/bin/python" "$PROJECT_DIR/tantivy2agents.py" "$@"
+else
+    echo "Error: Python not found at $PROJECT_DIR/.venv/bin/python"
+    echo "Please run: python $PROJECT_DIR/tantivy2agents.py setup"
+    exit 1
+fi
+'''
+
+        try:
+            with open(script_path, 'w') as f:
+                f.write(script_content)
+
+            # Make script executable
+            st = os.stat(script_path)
+            os.chmod(script_path, st.st_mode | stat.S_IEXEC)
+
+            print(f"✅ Bash script created: {script_path}")
+            print(f"📁 Project directory: {script_dir}")
+
+            # Check if ~/bin is in PATH
+            path_dirs = os.environ.get('PATH', '').split(':')
+            if bin_dir not in path_dirs:
+                print(f"⚠️ Warning: {bin_dir} is not in your PATH")
+                print(f"   Add this line to your ~/.bashrc or ~/.zshrc:")
+                print(f"   export PATH=\"$PATH:{bin_dir}\"")
+                print("   Then restart your terminal or run: source ~/.bashrc")
+            else:
+                print("✅ ~/bin is already in your PATH")
+
+            print("\n🎉 Setup complete! You can now use:")
+            print("   tantivy2agents index")
+            print("   tantivy2agents search \"your query\"")
+            print("   tantivy2agents install")
+
+        except Exception as e:
+            print(f"❌ Failed to create bash script: {e}")
+
 
 def main():
     """Main entry point"""
@@ -1249,7 +1347,7 @@ Examples:
     )
 
     parser.add_argument('command',
-                       choices=['index', 'search', 'clear', 'install', 'hook-clear', 'encoding-info'],
+                       choices=['index', 'search', 'clear', 'install', 'hook-clear', 'encoding-info', 'setup'],
                        help='Command to execute')
 
     parser.add_argument('query', nargs='*', help='Search query (for search command)')
@@ -1284,6 +1382,8 @@ Examples:
         agent.hook_clear_command()
     elif args.command == 'encoding-info':
         agent.encoding_info_command()
+    elif args.command == 'setup':
+        agent.setup_command()
 
 
 if __name__ == "__main__":
