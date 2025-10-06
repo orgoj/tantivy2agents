@@ -161,6 +161,9 @@ python /path/to/tantivy2agents.py install --no-config
 # Setup bash script for system-wide access
 python /path/to/tantivy2agents.py setup
 
+# Show index status and statistics
+python tantivy2agents.py status
+
 # Hook command (used automatically by Claude)
 ./tools/tantivy2agent hook-clear
 ```
@@ -336,6 +339,7 @@ The agent tracks file modification times and only rebuilds the index when:
 | `./tools/tantivy2agent hook-clear` | Clear index (used by Claude hooks) |
 | `./tools/tantivy2agent encoding-info` | Analyze file encodings in project |
 | `python tantivy2agents.py setup` | Create bash script in ~/bin for system-wide access |
+| `python tantivy2agents.py status` | Display index statistics and status information |
 
 ## System-wide Setup
 
@@ -389,6 +393,72 @@ Then restart your terminal or run:
 ```bash
 source ~/.bashrc  # or source ~/.zshrc
 ```
+
+## Status Command
+
+The `status` command provides detailed information about your index and system status:
+
+```bash
+# From the tantivy2agents project directory
+python tantivy2agents.py status
+```
+
+### What Status Shows
+
+The status command displays comprehensive information about:
+
+#### 📊 Index Statistics
+- **Document count**: Number of documents in the index
+- **Last update**: When the index was last rebuilt
+- **Index size**: Disk space used by the index
+- **Index files**: Number of files that make up the index
+
+#### 📂 File Information
+- **Files to index**: Total files matching your patterns
+- **Files available**: Files that exist and can be indexed
+- **Missing files**: Files that were indexed but have been deleted
+- **Last modified**: Most recent file modification time
+
+#### 🔧 System Information
+- **Tantivy version**: Version of the Tantivy library
+- **Index status**: Whether the index is up to date or needs rebuilding
+- **Project paths**: Locations of config and index files
+
+### Example Output
+
+```
+📊 Tantivy Agent Status
+
+📁 Project: /home/user/myproject
+📄 Config: .tantivi2agents.json
+🗂️  Index: .tantivy-data/index/
+
+📈 Index Statistics
+   Documents: 1,234
+   Last update: 2025-01-06 19:30:45
+   Index size: 15.2 MB
+   Index files: 12
+   Searchable docs: 1,234
+
+📂 File Information
+   Files to index: 200
+   Files available: 195
+   Missing files: 5
+   Last modified: 2025-01-06 18:45:22
+
+🔧 System
+   Tantivy version: 0.24.0
+   Index status: ✅ Up to date
+```
+
+### When to Use Status
+
+Use the status command to:
+- **Check index health**: Verify your index is complete and up to date
+- **Monitor size**: Track how large your index is getting
+- **Debug issues**: See why search might not be working properly
+- **File verification**: Ensure all expected files are indexed
+- **System info**: Get version and configuration details
 
 ## File Encoding Support
 

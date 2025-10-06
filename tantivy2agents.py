@@ -1326,6 +1326,140 @@ fi
         except Exception as e:
             print(f"❌ Failed to create bash script: {e}")
 
+    def status_command(self):
+        """Status command to display index information and statistics"""
+        import os
+        import time
+        from datetime import datetime
+
+        print("📊 Tantivy Agent Status\n")
+
+        # Basic project information
+        print(f"📁 Project: {self.project_root}")
+        print(f"📄 Config: {os.path.relpath(self.config_path, self.project_root)}")
+
+        # Index directory information
+        data_dir = os.path.join(self.project_root, self.config['index_dir'])
+        index_path = os.path.join(data_dir, 'idx')
+        print(f"🗂️  Index: {os.path.relpath(index_path, self.project_root)}")
+
+        # Check if index exists
+        if not os.path.exists(index_path):
+            print(f"\n❌ Index not found at: {index_path}")
+            print("   Run 'python tantivy2agents.py index' to create the index")
+            return
+
+        print("\n📈 Index Statistics")
+
+        # Load index info from JSON
+        index_info_path = os.path.join(data_dir, 'index_info.json')
+        try:
+            if os.path.exists(index_info_path):
+                with open(index_info_path, 'r') as f:
+                    index_info = json.load(f)
+
+                doc_count = index_info.get('count', 0)
+                timestamp = index_info.get('timestamp', 0)
+                last_update = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                indexed_files = index_info.get('files', [])
+
+                print(f"   Documents: {doc_count:,}")
+                print(f"   Last update: {last_update}")
+                print(f"   Files in index: {len(indexed_files):,}")
+            else:
+                print("   ⚠️ Index metadata not found")
+        except Exception as e:
+            print(f"   ⚠️ Error reading index metadata: {e}")
+
+        # Calculate index size
+        try:
+            index_size = 0
+            index_files = 0
+            for root, dirs, files in os.walk(index_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    index_size += os.path.getsize(file_path)
+                    index_files += 1
+
+            index_size_mb = index_size / (1024 * 1024)
+            print(f"   Index size: {index_size_mb:.1f} MB")
+            print(f"   Index files: {index_files}")
+        except Exception as e:
+            print(f"   ⚠️ Error calculating index size: {e}")
+
+        # Tantivy index statistics
+        try:
+            index = tantivy.Index.open(index_path)
+            searcher = index.searcher()
+            # Note: Tantivy Python bindings might not have num_docs method
+            # This is a placeholder - actual method might differ
+            try:
+                total_docs = len(searcher)  # Try len(searcher) first
+                print(f"   Searchable docs: {total_docs:,}")
+            except:
+                print("   Searchable docs: N/A")
+        except Exception as e:
+            print(f"   ⚠️ Error opening index: {e}")
+
+        print("\n📂 File Information")
+
+        # Get files to index
+        files_to_index = []
+        try:
+            files_to_index, _ = self._get_files_for_indexing()
+            print(f"   Files to index: {len(files_to_index):,}")
+        except Exception as e:
+            print(f"   ⚠️ Error getting files to index: {e}")
+
+        # Check available vs missing files
+        if 'index_info' in locals() and indexed_files:
+            available_files = []
+            missing_files = []
+            for file_path in indexed_files:
+                if os.path.exists(file_path):
+                    available_files.append(file_path)
+                else:
+                    missing_files.append(file_path)
+
+            print(f"   Files available: {len(available_files):,}")
+            if missing_files:
+                print(f"   Missing files: {len(missing_files):,}")
+
+            # Get file modification times
+            if files_to_index:
+                try:
+                    mtimes = [os.path.getmtime(f) for f in files_to_index if os.path.exists(f)]
+                    if mtimes:
+                        latest_mtime = max(mtimes)
+                        latest_file = datetime.fromtimestamp(latest_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                        print(f"   Last modified: {latest_file}")
+                except Exception as e:
+                    print(f"   ⚠️ Error getting modification times: {e}")
+
+        print("\n🔧 System")
+
+        # Tantivy version
+        try:
+            print(f"   Tantivy version: {tantivy.__version__}")
+        except:
+            print("   Tantivy version: N/A")
+
+        # Index status
+        try:
+            if 'index_info' in locals():
+                needs_rebuild = self._should_rebuild_index(data_dir)
+                if needs_rebuild:
+                    print("   Index status: ⚠️ Out of date")
+                    print("   💡 Run 'python tantivy2agents.py index' to update")
+                else:
+                    print("   Index status: ✅ Up to date")
+            else:
+                print("   Index status: ⚠️ Unknown")
+        except Exception as e:
+            print(f"   Index status: ⚠️ Error checking: {e}")
+
+        print()  # Empty line at end
+
 
 def main():
     """Main entry point"""
@@ -1347,7 +1481,7 @@ Examples:
     )
 
     parser.add_argument('command',
-                       choices=['index', 'search', 'clear', 'install', 'hook-clear', 'encoding-info', 'setup'],
+                       choices=['index', 'search', 'clear', 'install', 'hook-clear', 'encoding-info', 'setup', 'status'],
                        help='Command to execute')
 
     parser.add_argument('query', nargs='*', help='Search query (for search command)')
@@ -1384,6 +1518,8 @@ Examples:
         agent.encoding_info_command()
     elif args.command == 'setup':
         agent.setup_command()
+    elif args.command == 'status':
+        agent.status_command()
 
 
 if __name__ == "__main__":
