@@ -62,10 +62,36 @@ class TantivyAgent:
             "version": "1.0",
             "index_dir": ".tantivy-data",
             "global_patterns": {
-                "include": ["*.md", "*.txt"],
-                "exclude": ["*.tmp", "*~", "*.bak"]
+                "include": ["*.*"],
+                "exclude": ["*.tmp", "*~", "*.bak", "*.log", "*.swp", "*.swo", ".DS_Store", "Thumbs.db", "*.exe", "*.dll", "*.so", "*.dylib", "*.jpg", "*.jpeg", "*.png", "*.gif", "*.bmp", "*.svg", "*.pdf", "*.zip", "*.tar", "*.gz", "*.rar", "*.7z", "*.mp3", "*.mp4", "*.avi", "*.mov", "*.wav", "*.flac", "*.ogg"]
             },
-            "index_dirs": ["docs/", "guides/", "servers/", "incidents/"],
+            "index_dirs": [
+                ".",
+                {
+                    "path": ".git",
+                    "exclude": true
+                },
+                {
+                    "path": "node_modules",
+                    "exclude": true
+                },
+                {
+                    "path": ".venv",
+                    "exclude": true
+                },
+                {
+                    "path": "target",
+                    "exclude": true
+                },
+                {
+                    "path": "dist",
+                    "exclude": true
+                },
+                {
+                    "path": "build",
+                    "exclude": true
+                }
+            ],
             "schema_fields": {
                 "title": {"weight": 2.0, "tokenizer": "en_stem"},
                 "body": {"weight": 1.0, "tokenizer": "en_stem"},
@@ -372,14 +398,30 @@ class TantivyAgent:
                                 # If we can't read the file, skip it
                                 pass
 
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_files = []
+        for file_path in files:
+            if file_path not in seen:
+                seen.add(file_path)
+                unique_files.append(file_path)
+
+        # Remove duplicates from dirs_processed as well
+        unique_dirs = []
+        seen_dirs = set()
+        for dir_path in dirs_processed:
+            if dir_path not in seen_dirs:
+                seen_dirs.add(dir_path)
+                unique_dirs.append(dir_path)
+
         # Show directories if requested
         if show_dirs:
             print("📂 Directories to be processed:")
-            for dir_path in dirs_processed:
+            for dir_path in unique_dirs:
                 rel_dir = os.path.relpath(dir_path, self.project_root)
                 print(f"📁 {rel_dir}")
 
-        return files, dirs_processed
+        return unique_files, unique_dirs
 
     def _match_pattern(self, path, pattern):
         """Simple glob pattern matching"""

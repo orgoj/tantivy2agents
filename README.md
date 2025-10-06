@@ -81,6 +81,56 @@ When you run `python tantivy2agents.py install`, the agent automatically:
 | **Rust** | `Cargo.toml`, `src/main.rs` | `docs/**`, `src/**/*.md`, exclude `target/` |
 | **Generic** | No specific indicators | `docs/**`, `*.md`, exclude `node_modules/`, `target/`, `dist/`, hidden files |
 
+### Recommended Configuration
+
+For most projects, the recommended configuration indexes all text files except common exclusions:
+
+```json
+{
+  "version": "1.0",
+  "index_dir": ".tantivy-data",
+  "global_patterns": {
+    "include": ["*.*"],
+    "exclude": ["*.tmp", "*~", "*.bak", "*.log", "*.swp", "*.swo", ".DS_Store", "Thumbs.db", "*.exe", "*.dll", "*.so", "*.dylib", "*.jpg", "*.jpeg", "*.png", "*.gif", "*.bmp", "*.svg", "*.pdf", "*.zip", "*.tar", "*.gz", "*.rar", "*.7z", "*.mp3", "*.mp4", "*.avi", "*.mov", "*.wav", "*.flac", "*.ogg"]
+  },
+  "index_dirs": [
+    ".",
+    {
+      "path": ".git",
+      "exclude": true
+    },
+    {
+      "path": "node_modules",
+      "exclude": true
+    },
+    {
+      "path": ".venv",
+      "exclude": true
+    },
+    {
+      "path": "target",
+      "exclude": true
+    },
+    {
+      "path": "dist",
+      "exclude": true
+    },
+    {
+      "path": "build",
+      "exclude": true
+    }
+  ],
+  "auto_hook": true
+}
+```
+
+**Key points:**
+- `"."` - Index entire project from root (prevents duplicates)
+- `"*.*"` - Include all files, then filter with exclude patterns
+- Common directories excluded (`.git`, `node_modules`, `.venv`, etc.)
+- Binary files excluded (images, executables, archives, etc.)
+- Temporary files excluded (`.tmp`, `*~`, `.bak`, etc.)
+
 ### Advanced Configuration
 
 The `.tantivi2agents.json` file controls all behavior:
