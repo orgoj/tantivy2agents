@@ -1373,19 +1373,9 @@ fi
             print(f"   ⚠️ Error calculating index size: {e}")
 
         # Tantivy index statistics
-        try:
-            index = tantivy.Index.open(index_path)
-            searcher = index.searcher()
-            # Note: Tantivy Python bindings might not have num_docs method
-            # This is a placeholder - actual method might differ
-            try:
-                total_docs = len(searcher)  # Try len(searcher) first
-                print(f"   Searchable docs: {total_docs:,}")
-            except (TypeError, AttributeError):
-                # len() not supported on this searcher version
-                print("   Searchable docs: N/A")
-        except (OSError, RuntimeError, ValueError) as e:
-            print(f"   ⚠️ Error opening index: {e}")
+        # Note: Document count is already reported above from index_info.json
+        # Tantivy Searcher doesn't have len() or num_docs() in Python bindings
+        # The count from index_info.json is the authoritative source
 
         print("\n📂 File Information")
 

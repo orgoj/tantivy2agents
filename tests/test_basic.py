@@ -138,7 +138,8 @@ def test_config_loading():
             # Check default values
             assert agent.config["version"] == "1.0"
             assert agent.config["index_dir"] == ".tantivy-data"
-            assert "docs/" in agent.config["index_dirs"]
+            # Default includes current directory and excludes various dirs
+            assert "." in agent.config["index_dirs"]
             assert "title" in agent.config["schema_fields"]
 
         finally:
@@ -464,6 +465,96 @@ def test_install_functionality():
         finally:
             os.chdir(os.path.dirname(temp_dir))
 
+def test_status_command():
+    """Test status command with valid index and index_info"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Change to temp directory
+        original_cwd = os.getcwd()
+        os.chdir(temp_dir)
+
+        try:
+            # Copy agent script - find it relative to test directory
+            test_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            agent_path = os.path.join(test_dir, "tantivy2agents.py")
+            if not os.path.exists(agent_path):
+                # Try from original_cwd as fallback
+                agent_path = os.path.join(original_cwd, "tantivy2agents.py")
+            shutil.copy(agent_path, "./tantivy2agents.py")
+            os.chmod("./tantivy2agents.py", 0o755)
+
+            # Create test config
+            config = {
+                "version": "1.0",
+                "index_dir": ".tantivy-data",
+                "global_patterns": {
+                    "include": ["*.md", "*.txt"],
+                    "exclude": ["*.tmp"]
+                },
+                "index_dirs": ["docs/"],
+                "schema_fields": {
+                    "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                    "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                    "tags": {"weight": 1.5, "tokenizer": "default"},
+                    "servers": {"weight": 1.5, "tokenizer": "default"},
+                    "path": {"weight": 0.5, "tokenizer": "raw"}
+                },
+                "search": {"default_limit": 10, "hide_incidents": True},
+                "auto_hook": False  # Disable hooks for testing
+            }
+
+            with open(".tantivi2agents.json", "w") as f:
+                json.dump(config, f)
+
+            # Create test documents
+            os.makedirs("docs", exist_ok=True)
+
+            with open("docs/test1.md", "w") as f:
+                f.write("# Test Document One\n\nContent about server configuration.")
+
+            with open("docs/test2.md", "w") as f:
+                f.write("# Test Document Two\n\nMore test content.")
+
+            # Test index command first
+            result = subprocess.run(["python", "./tantivy2agents.py", "index"],
+                                  capture_output=True, text=True)
+            if result.returncode != 0:
+                raise Exception(f"Index command failed: {result.stderr}")
+
+            # Now test status command
+            result = subprocess.run(["python", "./tantivy2agents.py", "status"],
+                                  capture_output=True, text=True)
+
+            if result.returncode != 0:
+                raise Exception(f"Status command failed with return code {result.returncode}: {result.stderr}")
+
+            # Check that status output contains expected information
+            output = result.stdout
+
+            # Should contain project info
+            assert "Tantivy Agent Status" in output, "Missing status header"
+
+            # Should contain index directory info
+            assert "Index:" in output, "Missing index info"
+
+            # Should contain statistics section
+            assert "Index Statistics" in output, "Missing statistics section"
+
+            # Should report document count from index_info.json
+            assert "Documents:" in output, "Missing document count"
+
+            # Should not crash with TypeError/AttributeError on searcher.len()
+            assert "N/A" not in output or "N/A (API not available)" not in output, \
+                "Should not show N/A for document count"
+
+            # Should show file information section
+            assert "File Information" in output, "Missing file information section"
+
+            # Should show system section
+            assert "System" in output, "Missing system section"
+
+        finally:
+            os.chdir(original_cwd)
+
 def main():
     """Run all tests"""
     print("🧪 Running Tantivy Agent Tests...")
@@ -478,7 +569,8 @@ def main():
         ("Project Detection", test_project_detection),
         ("Glob Patterns", test_glob_patterns),
         ("Default Configs", test_default_configs),
-        ("Install Functionality", test_install_functionality)
+        ("Install Functionality", test_install_functionality),
+        ("Status Command", test_status_command)
     ]
 
     passed = 0
