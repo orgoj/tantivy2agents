@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "index_dir": ".tantivi2agents",
+  "index_dir": ".tantivy-data",
 
   "global_patterns": {
     "include": ["*.md", "*.txt"],
