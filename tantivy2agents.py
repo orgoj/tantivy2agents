@@ -1317,6 +1317,11 @@ fi
 
     def status_command(self) -> None:
         """Status command to display index information and statistics"""
+
+        # Initialize variables explicitly to avoid fragile locals() checks
+        index_info: dict | None = None
+        indexed_files: list = []
+
         print("📊 Tantivy Agent Status\n")
 
         # Basic project information
@@ -1388,7 +1393,7 @@ fi
             print(f"   ⚠️ Error getting files to index: {e}")
 
         # Check available vs missing files
-        if 'index_info' in locals() and indexed_files:
+        if index_info is not None and indexed_files:
             available_files = []
             missing_files = []
             for file_path in indexed_files:
@@ -1423,7 +1428,7 @@ fi
 
         # Index status
         try:
-            if 'index_info' in locals():
+            if index_info is not None:
                 needs_rebuild = self._should_rebuild_index(data_dir)
                 if needs_rebuild:
                     print("   Index status: ⚠️ Out of date")
