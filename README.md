@@ -5,6 +5,7 @@ All-in-one solution for document indexing and search using Tantivy with flexible
 ## Features
 
 - **All-in-one script** - Single Python file with complete functionality
+- **Czech language support** - Built-in stemmer for Czech morphology (skloňování a časování)
 - **Flexible configuration** - JSON-based config with global and directory-specific patterns
 - **Automatic data management** - Data stored outside repository with auto .gitignore
 - **Claude Code integration** - Automatic hook installation for real-time index updates
@@ -288,6 +289,36 @@ This ensures the index is automatically marked for updates when files are modifi
 - Supports `*`, `?`, and character classes
 
 ## Search Features
+
+### Czech Language Support
+
+Tantivy Agent includes built-in support for Czech language search with automatic morphological normalization. Search queries and indexed content are automatically stemmed to handle different word forms.
+
+**Supported morphology:**
+- **Verb conjugation** (časování): dokončit, dokončil, dokončila, dokončeno → same results
+- **Noun declension** (skloňování): úkol, úkoly, úkolů, úkolem → same results
+- **Adjective forms**: projekt, projekty, projektů, projektem → same results
+
+**How it works:**
+- All text is automatically normalized during indexing
+- Search queries are normalized the same way
+- No configuration needed - works out of the box
+- Zero external dependencies - lightweight implementation
+
+**Example:**
+```bash
+# All these queries find the same documents:
+./tools/tantivy2agent search "dokončit"      # infinitive
+./tools/tantivy2agent search "dokončil"      # past tense
+./tools/tantivy2agent search "dokončeno"     # passive
+
+# Works for nouns too:
+./tools/tantivy2agent search "úkol"          # singular
+./tools/tantivy2agent search "úkoly"         # plural
+./tools/tantivy2agent search "úkolů"         # genitive plural
+```
+
+**Note:** This stemmer is optimized for Czech but also works reasonably well for other Slavic languages with similar morphology.
 
 ### Default Search
 

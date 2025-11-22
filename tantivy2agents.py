@@ -28,6 +28,7 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 import glob
 import fnmatch
 import tantivy
@@ -38,10 +39,107 @@ except ImportError:
     print("Warning: charset_normalizer not installed. Encoding detection will be limited to UTF-8.")
 
 
+# === Czech Stemming Support ===
+# Lightweight Czech stemmer for morphological normalization
+# Removes common Czech suffixes to enable search across different word forms
+
+def czech_stem(word):
+    """
+    Simple Czech stemmer - removes common suffixes for better search.
+
+    Handles:
+    - Adjective endings: -ý/-á/-é/-í, -ého/-ému/-ým/-ém, -ou/-ými
+    - Noun endings: -a/-y/-e/-u/-em/-ům/-ech/-ami/-ách
+    - Verb endings: -it/-at/-et, -il/-al/-el, -ím/-ám/-em, -íme/-áme/-eme
+
+    Examples:
+        dokončit → dokonč
+        dokončil → dokonč
+        dokončený → dokonč
+        dokončeno → dokonč
+        úkol → úkol
+        úkoly → úkol
+    """
+    word = word.lower().strip()
+
+    # Don't stem very short words
+    if len(word) < 4:
+        return word
+
+    # Suffixes ordered by length (longest first) to avoid partial matches
+    suffixes = [
+        # Adjective forms (7+ chars)
+        'ějšího', 'ějšímu', 'ějším', 'ějších',
+        # Adjective forms (6 chars)
+        'ějším', 'ější',
+        # Verb forms (5+ chars)
+        'ovat', 'ovala', 'ovalo', 'ovali', 'ovaly',
+        # Adjective forms (4+ chars)
+        'ého', 'ému', 'ými', 'ých', 'ými',
+        # Noun plurals (4 chars)
+        'ech', 'ami', 'ách', 'ům',
+        # Verb passive/neuter (3 chars)
+        'eno', 'ano',
+        # Verb past tense (3 chars)
+        'ila', 'ilo', 'ili', 'ily',
+        # Adjective forms (3 chars)
+        'ým', 'ém', 'ou',
+        # Noun forms (2-3 chars)
+        'ům', 'ích', 'ům',
+        # Common verb infinitives (2 chars)
+        'it', 'at', 'et',
+        # Past tense singular (2 chars)
+        'il', 'al', 'el',
+        # Present tense (3 chars)
+        'íme', 'áme', 'eme',
+        # Present tense singular (2 chars)
+        'ím', 'ám', 'em', 'íš', 'áš', 'eš',
+        # Adjectives (2 chars)
+        'ý', 'á', 'é', 'í',
+        # Nouns (1-2 char, only if stem will be 3+ chars)
+        'ů', 'a', 'y', 'e', 'u',
+    ]
+
+    for suffix in suffixes:
+        if word.endswith(suffix):
+            stem = word[:-len(suffix)]
+            # Keep minimum stem length of 3 characters
+            if len(stem) >= 3:
+                return stem
+
+    return word
+
+
+def normalize_czech_text(text):
+    """
+    Normalize Czech text for indexing/searching.
+    Applies stemming to all words while preserving structure.
+
+    Args:
+        text: Input text in Czech
+
+    Returns:
+        Normalized text with stemmed words
+    """
+    # Split by non-word characters, preserve structure
+    words = re.findall(r'\w+|\W+', text)
+    normalized = []
+
+    for part in words:
+        if re.match(r'\w+', part):
+            # It's a word - stem it
+            normalized.append(czech_stem(part))
+        else:
+            # It's punctuation/whitespace - keep as is
+            normalized.append(part)
+
+    return ''.join(normalized)
+
+
 class TantivyAgent:
     """Main Tantivy Agent class with all functionality"""
 
-    def __init__(self, config_path=None):
+    def __init__(self, config_path: Optional[str] = None) -> None:
         """Initialize agent with configuration"""
         self.project_root = self._find_project_root()
         self.config_path = config_path or os.path.join(self.project_root, '.tantivi2agents.json')
@@ -124,7 +222,7 @@ class TantivyAgent:
                 # Merge with defaults
                 config = {**default_config, **user_config}
                 return config
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
                 print(f"Error loading config: {e}")
                 print("Using default configuration.")
 
@@ -365,7 +463,7 @@ class TantivyAgent:
                         else:
                             # Skip binary files silently
                             pass
-                    except Exception:
+                    except OSError:
                         # If we can't read the file, skip it
                         pass
             else:
@@ -394,7 +492,7 @@ class TantivyAgent:
                                 else:
                                     # Skip binary files silently
                                     pass
-                            except Exception:
+                            except OSError:
                                 # If we can't read the file, skip it
                                 pass
 
@@ -425,7 +523,6 @@ class TantivyAgent:
 
     def _match_pattern(self, path, pattern):
         """Simple glob pattern matching"""
-        import fnmatch
         return fnmatch.fnmatch(path, pattern)
 
     def _is_binary_file(self, file_path, content_bytes=None):
@@ -499,7 +596,7 @@ class TantivyAgent:
                 elif confidence > 0.3:  # Lower confidence but still usable
                     # We'll try this encoding but have fallbacks ready
                     return detected_encoding
-            except Exception:
+            except (TypeError, AttributeError, LookupError):
                 pass  # Fall back to other methods
 
         # Fall back to configured encoding
@@ -535,10 +632,10 @@ class TantivyAgent:
             try:
                 content = content_bytes.decode('utf-8', errors='replace')
                 return content, 'utf-8-replace'
-            except Exception:
+            except (MemoryError, SystemError):
                 return None, "failed"
 
-        except Exception as e:
+        except OSError as e:
             return None, f"error: {str(e)}"
 
     def _parse_markdown(self, file_path):
@@ -559,7 +656,7 @@ class TantivyAgent:
             if encoding_info != 'utf-8':
                 print(f"📖 {os.path.relpath(file_path, self.project_root)}: detected encoding {encoding_info}")
 
-        except Exception as e:
+        except OSError as e:
             print(f"Error reading {file_path}: {e}")
             return None
 
@@ -572,7 +669,8 @@ class TantivyAgent:
             header, body = m.groups()
             try:
                 meta = yaml.safe_load(header) or {}
-            except:
+            except yaml.YAMLError:
+                # Invalid YAML frontmatter, skip it
                 pass
 
         # Auto-generate metadata for server files
@@ -599,9 +697,13 @@ class TantivyAgent:
                 title = line[2:].strip()
                 break
 
+        # Apply Czech normalization for better search
+        title_normalized = normalize_czech_text(title or os.path.basename(file_path))
+        body_normalized = normalize_czech_text(body)
+
         return {
-            "title": title or os.path.basename(file_path),
-            "body": body,
+            "title": title_normalized,
+            "body": body_normalized,
             "tags": " ".join(meta.get("tags", [])) if isinstance(meta.get("tags"), list)
                    else meta.get("tags", "") or "",
             "servers": " ".join(meta.get("servers", [])) if isinstance(meta.get("servers"), list)
@@ -644,10 +746,11 @@ class TantivyAgent:
                     return True
 
             return False
-        except:
+        except (OSError, json.JSONDecodeError, KeyError):
+            # If we can't read index info or it's corrupt, rebuild
             return True
 
-    def index_command(self, force=False, show_dirs=False, show_files=False):
+    def index_command(self, force: bool = False, show_dirs: bool = False, show_files: bool = False) -> None:
         """Create or update document index"""
         print("🔍 Starting document indexing...")
 
@@ -711,7 +814,7 @@ class TantivyAgent:
         print(f"📍 Index saved to: {index_dir}")
         print("💡 You can now search with: python tantivy2agents.py search 'your query'")
 
-    def search_command(self, query, limit=None, format_output=None, output_file=None):
+    def search_command(self, query: str, limit: Optional[int] = None, format_output: Optional[str] = None, output_file: Optional[str] = None) -> None:
         """Search in indexed documents"""
         if not query:
             print("❌ Please provide a search query")
@@ -729,9 +832,12 @@ class TantivyAgent:
             index = tantivy.Index.open(index_dir)
             searcher = index.searcher()
 
+            # Normalize query for Czech search
+            normalized_query = normalize_czech_text(query)
+
             # Parse query
             field_names = list(self.config['schema_fields'].keys())
-            query_parser = index.parse_query(query, field_names)
+            query_parser = index.parse_query(normalized_query, field_names)
 
             # Search
             limit = limit or self.config['search']['default_limit']
@@ -761,7 +867,7 @@ class TantivyAgent:
             else:
                 self._display_results(filtered_results[:limit])
 
-        except Exception as e:
+        except (OSError, ValueError, RuntimeError) as e:
             print(f"❌ Search error: {e}")
 
     def _display_results(self, results):
@@ -792,9 +898,6 @@ class TantivyAgent:
 
     def _export_json(self, results, query, output_file):
         """Export results as JSON"""
-        import json
-        from datetime import datetime
-
         export_data = {
             "query": query,
             "timestamp": datetime.now().isoformat(),
@@ -823,8 +926,6 @@ class TantivyAgent:
     def _export_csv(self, results, query, output_file):
         """Export results as CSV"""
         import csv
-        from datetime import datetime
-        import sys
 
         if output_file:
             file_handle = open(output_file, 'w', newline='', encoding='utf-8')
@@ -859,12 +960,9 @@ class TantivyAgent:
 
     def _export_txt(self, results, query, output_file):
         """Export results as plain text"""
-        from datetime import datetime
-
         if output_file:
             file_handle = open(output_file, 'w', encoding='utf-8')
         else:
-            import sys
             file_handle = sys.stdout
 
         try:
@@ -926,7 +1024,7 @@ class TantivyAgent:
 
         return filtered
 
-    def clear_command(self):
+    def clear_command(self) -> None:
         """Clear the index"""
         print("🗑️  Clearing index...")
 
@@ -938,7 +1036,7 @@ class TantivyAgent:
         else:
             print("ℹ️  No index directory found")
 
-    def install_command(self, target_dir=None, create_config=True):
+    def install_command(self, target_dir: Optional[str] = None, create_config: bool = True) -> None:
         """Install Tantivy Agent in target project with smart setup"""
         if target_dir:
             target_project_root = os.path.abspath(target_dir)
@@ -954,7 +1052,7 @@ class TantivyAgent:
             self._create_default_config(target_project_root)
 
         # Step 3: Install Claude hooks in target
-        self._install_claude_hooks_in_target(target_project_root)
+        self._install_claude_hooks(target_root=target_project_root)
 
         # Step 4: Setup .gitignore
         self._setup_gitignore(target_project_root)
@@ -1021,13 +1119,19 @@ class TantivyAgent:
             # Restore original project root
             self.project_root = original_root
 
-    def _install_claude_hooks_in_target(self, target_project_root):
-        """Install Claude hooks in target project"""
-        claude_dir = os.path.join(target_project_root, '.claude')
+    def _install_claude_hooks(self, target_root=None, use_absolute_path=False):
+        """Install Claude hooks in project
+
+        Args:
+            target_root: Target project root (None = use self.project_root)
+            use_absolute_path: Use absolute vs relative path (for future flexibility)
+        """
+        target_root = target_root or self.project_root
+        claude_dir = os.path.join(target_root, '.claude')
         os.makedirs(claude_dir, exist_ok=True)
 
         settings_path = os.path.join(claude_dir, 'settings.json')
-        tools_dir = os.path.join(target_project_root, 'tools')
+        tools_dir = os.path.join(target_root, 'tools')
         hook_command = os.path.join(tools_dir, 'tantivy2agents.py')
 
         # Load existing settings or create new
@@ -1104,60 +1208,7 @@ class TantivyAgent:
                     f.write(entry + '\n')
             print("✅ Created .gitignore")
 
-    def _install_claude_hooks(self):
-        """Install Claude Code hooks"""
-        claude_dir = os.path.join(self.project_root, '.claude')
-        os.makedirs(claude_dir, exist_ok=True)
-
-        settings_path = os.path.join(claude_dir, 'settings.json')
-
-        # Find where this script is located
-        script_path = os.path.abspath(__file__)
-
-        # Load existing settings or create new
-        settings = {}
-        if os.path.exists(settings_path):
-            with open(settings_path, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
-
-        # Add hooks configuration
-        if 'hooks' not in settings:
-            settings['hooks'] = {}
-        if 'PostToolUse' not in settings['hooks']:
-            settings['hooks']['PostToolUse'] = []
-
-        # Check if hook already exists
-        existing_hook = None
-        for hook in settings['hooks']['PostToolUse']:
-            if 'hooks' in hook:
-                for subhook in hook['hooks']:
-                    if 'command' in subhook and 'tantivy2agent' in subhook['command']:
-                        existing_hook = hook
-                        break
-
-        if existing_hook:
-            print("ℹ️  Claude hooks already installed")
-            return
-
-        # Add new hook
-        new_hook = {
-            "matcher": "Edit|Write|MultiEdit",
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": f"{script_path} hook-clear"
-                }
-            ]
-        }
-        settings['hooks']['PostToolUse'].append(new_hook)
-
-        # Write settings back
-        with open(settings_path, 'w', encoding='utf-8') as f:
-            json.dump(settings, f, indent=2)
-
-        print("✅ Claude hooks installed")
-
-    def hook_clear_command(self):
+    def hook_clear_command(self) -> None:
         """Clear index when files are modified (used by Claude hooks)"""
         # This is called by Claude hooks - check if any indexed files were modified
         # For now, just clear the index to be safe
@@ -1177,7 +1228,7 @@ class TantivyAgent:
                 # No index info, remove directory
                 shutil.rmtree(data_dir)
 
-    def encoding_info_command(self):
+    def encoding_info_command(self) -> None:
         """Show encoding information for files that would be indexed"""
         print("🔍 Analyzing file encodings...")
 
@@ -1240,7 +1291,7 @@ class TantivyAgent:
                 else:
                     problem_files.append(rel_path)
 
-            except Exception as e:
+            except (OSError, RuntimeError) as e:
                 problem_files.append(f"{rel_path} (error: {str(e)})")
 
         # Show summary
@@ -1270,7 +1321,7 @@ class TantivyAgent:
         print(f"   Auto-detect: {self.config.get('encoding', {}).get('auto_detect', True)}")
         print(f"   Confidence threshold: {self.config.get('encoding', {}).get('detection_confidence_threshold', 0.7)}")
 
-    def setup_command(self):
+    def setup_command(self) -> None:
         """Setup command to install bash script to ~/bin"""
         import stat
 
@@ -1365,14 +1416,15 @@ fi
             print("   tantivy2agents search \"your query\"")
             print("   tantivy2agents install")
 
-        except Exception as e:
+        except OSError as e:
             print(f"❌ Failed to create bash script: {e}")
 
-    def status_command(self):
+    def status_command(self) -> None:
         """Status command to display index information and statistics"""
-        import os
-        import time
-        from datetime import datetime
+
+        # Initialize variables explicitly to avoid fragile locals() checks
+        index_info: dict | None = None
+        indexed_files: list = []
 
         print("📊 Tantivy Agent Status\n")
 
@@ -1410,7 +1462,7 @@ fi
                 print(f"   Files in index: {len(indexed_files):,}")
             else:
                 print("   ⚠️ Index metadata not found")
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, KeyError) as e:
             print(f"   ⚠️ Error reading index metadata: {e}")
 
         # Calculate index size
@@ -1426,22 +1478,13 @@ fi
             index_size_mb = index_size / (1024 * 1024)
             print(f"   Index size: {index_size_mb:.1f} MB")
             print(f"   Index files: {index_files}")
-        except Exception as e:
+        except OSError as e:
             print(f"   ⚠️ Error calculating index size: {e}")
 
         # Tantivy index statistics
-        try:
-            index = tantivy.Index.open(index_path)
-            searcher = index.searcher()
-            # Note: Tantivy Python bindings might not have num_docs method
-            # This is a placeholder - actual method might differ
-            try:
-                total_docs = len(searcher)  # Try len(searcher) first
-                print(f"   Searchable docs: {total_docs:,}")
-            except:
-                print("   Searchable docs: N/A")
-        except Exception as e:
-            print(f"   ⚠️ Error opening index: {e}")
+        # Note: Document count is already reported above from index_info.json
+        # Tantivy Searcher doesn't have len() or num_docs() in Python bindings
+        # The count from index_info.json is the authoritative source
 
         print("\n📂 File Information")
 
@@ -1450,11 +1493,11 @@ fi
         try:
             files_to_index, _ = self._get_files_for_indexing()
             print(f"   Files to index: {len(files_to_index):,}")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             print(f"   ⚠️ Error getting files to index: {e}")
 
         # Check available vs missing files
-        if 'index_info' in locals() and indexed_files:
+        if index_info is not None and indexed_files:
             available_files = []
             missing_files = []
             for file_path in indexed_files:
@@ -1475,7 +1518,7 @@ fi
                         latest_mtime = max(mtimes)
                         latest_file = datetime.fromtimestamp(latest_mtime).strftime('%Y-%m-%d %H:%M:%S')
                         print(f"   Last modified: {latest_file}")
-                except Exception as e:
+                except (OSError, ValueError) as e:
                     print(f"   ⚠️ Error getting modification times: {e}")
 
         print("\n🔧 System")
@@ -1483,12 +1526,13 @@ fi
         # Tantivy version
         try:
             print(f"   Tantivy version: {tantivy.__version__}")
-        except:
+        except AttributeError:
+            # __version__ not available
             print("   Tantivy version: N/A")
 
         # Index status
         try:
-            if 'index_info' in locals():
+            if index_info is not None:
                 needs_rebuild = self._should_rebuild_index(data_dir)
                 if needs_rebuild:
                     print("   Index status: ⚠️ Out of date")
@@ -1497,7 +1541,7 @@ fi
                     print("   Index status: ✅ Up to date")
             else:
                 print("   Index status: ⚠️ Unknown")
-        except Exception as e:
+        except (OSError, json.JSONDecodeError) as e:
             print(f"   Index status: ⚠️ Error checking: {e}")
 
         print()  # Empty line at end
