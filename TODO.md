@@ -2,421 +2,796 @@
 
 **Poslední aktualizace:** 2025-11-22
 **Zdroj:** Komplexní code review z 2025-11-22
+**Context:** Lokální CLI nástroj pro izolované prostředí
 
 ---
 
-## 🚨 KRITICKÁ PRIORITA - Bezpečnost (4-6 hodin)
+## ⚠️ KONTEXT: Lokální CLI Nástroj
 
-> **VAROVÁNÍ:** Tyto problémy MUSÍ být opraveny před nasazením do produkce!
+Tento nástroj je určen pro **lokální použití** vývojářem na vlastním počítači. **NENÍ** určen pro:
+- ❌ Webové aplikace
+- ❌ Síťové služby
+- ❌ Multi-user prostředí
+- ❌ Zpracování nedůvěryhodných vstupů
 
-### 1. Path Traversal při exportu souborů
-- [ ] **Přidat validaci výstupních cest v export metodách**
-  - Soubor: `tantivy2agents.py`
-  - Řádky: 817, 830, 865
-  - Čas: 30 minut
-  - Dopad: KRITICKÝ - umožňuje přepis libovolných souborů
-  - Implementace:
-    ```python
-    def _validate_output_path(self, output_file):
-        abs_path = os.path.abspath(output_file)
-        if not abs_path.startswith(os.path.abspath(os.getcwd())):
-            raise ValueError("Output file must be within current directory")
-        if ".." in output_file:
-            raise ValueError("Path traversal not allowed")
-        return abs_path
-    ```
+**Důsledky pro priority:**
+1. 🔴 **HIGHEST:** Code quality & best practices (údržba, debugování)
+2. 🟡 **MEDIUM:** Safety checks (prevence nehod)
+3. 🟢 **LOW:** Security hardening (malé riziko pro local CLI)
 
-### 2. Path Traversal přes glob patterny
-- [ ] **Validovat všechny glob patterny v konfiguraci**
-  - Soubor: `tantivy2agents.py`
-  - Řádky: 290, 293, 307, 309
-  - Čas: 1 hodina
-  - Dopad: KRITICKÝ - umožňuje čtení libovolných souborů
-  - Implementace:
-    ```python
-    def _validate_path_pattern(self, pattern):
-        if os.path.isabs(pattern):
-            raise ValueError("Absolute paths not allowed")
-        if ".." in pattern:
-            raise ValueError("Parent directory traversal not allowed")
-        return pattern
-    ```
-
-### 3. Nebezpečné vytváření symlinků
-- [ ] **Přidat validaci při vytváření symlinků**
-  - Soubor: `tantivy2agents.py`
-  - Řádek: 989
-  - Čas: 30 minut
-  - Dopad: VYSOKÝ - vytvoření symlinků v systémových adresářích
-
-### 4. Nebezpečné mazání adresářů
-- [ ] **Implementovat bezpečnou verzi rmtree s validací**
-  - Soubor: `tantivy2agents.py`
-  - Řádky: 684, 936, 1178
-  - Čas: 45 minut
-  - Dopad: VYSOKÝ - smazání libovolných adresářů
-
-### 5. Command Injection v subprocess
-- [ ] **Validovat `cwd` parametr v subprocess voláních**
-  - Soubor: `tantivy2agents.py`
-  - Řádky: 1286, 1297, 1306
-  - Čas: 1 hodina
-  - Dopad: VYSOKÝ
-
-### 6. Command Injection v bin skriptech
-- [ ] **Použít absolutní cesty místo relativních v bin/tantivy-search**
-  - Soubor: `bin/tantivy-search`
-  - Řádky: 85-89
-  - Čas: 30 minut
-  - Dopad: VYSOKÝ
-
-### 7. Kontroly velikosti souborů
-- [ ] **Přidat limity pro velikost souborů před načtením do paměti**
-  - Soubor: `tantivy2agents.py`
-  - Řádky: 359, 388, 513, 1202
-  - Čas: 30 minut
-  - Dopad: STŘEDNÍ - DoS přes velké soubory
+**Security issues** jsou dokumentovány jako **best practices**, ne kritické zranitelnosti.
 
 ---
 
-## ⚡ VYSOKÁ PRIORITA - Správnost kódu (6-8 hodin)
+## 🔴 VYSOKÁ PRIORITA - Code Quality & Best Practices (8-12 hodin)
 
-### 8. Duplicitní importy
-- [ ] **Odstranit duplicitní import fnmatch**
-  - Soubor: `tantivy2agents.py`
-  - Řádek: 428
-  - Čas: 5 minut
+> Tyto problémy přímo ovlivňují **údržbu, debugování a vývoj**
 
-- [ ] **Odstranit všechny method-level importy**
-  - Soubor: `tantivy2agents.py`
-  - Řádky: 795, 796, 825-827, 862, 867, 1375
-  - Čas: 10 minut
+### 1. Opravit bare except klauzule (16 výskytů) ⭐
+- **Priorita:** 🔴 CRITICAL pro debugging
+- **Čas:** 2 hodiny
+- **Dopad:** Skrývají chyby, brání Ctrl+C, ztěžují debugging
 
-### 9. Neplatné Tantivy API použití
-- [ ] **Opravit nebo odstranit len(searcher) volání**
-  - Soubor: `tantivy2agents.py`
-  - Řádek: 1439
-  - Čas: 30 minut
-  - Poznámka: Searcher nepodporuje len(), použít správné API
+**Lokace:** `tantivy2agents.py` - řádky 368, 397, 502, 538, 541, 562, 575, 647, 764, 1243, 1368, 1441, 1486
 
-### 10. Bare except klauzule (16 výskytů)
-- [ ] **Nahradit bare except specifickými exceptions**
-  - Soubor: `tantivy2agents.py`
-  - Řádky: 368, 397, 502, 538, 541, 562, 575, 647, 764, 1243, 1368, 1441, 1486
-  - Čas: 2 hodiny
-  - Dopad: VYSOKÝ - skrývá kritické chyby
-  - Vzor:
-    ```python
-    # Místo:
-    except:
-        pass
+**Současný problém:**
+```python
+try:
+    meta = yaml.safe_load(header) or {}
+except:  # ❌ Zachycuje vše včetně KeyboardInterrupt!
+    pass
+```
 
-    # Použít:
-    except (SpecificError1, SpecificError2) as e:
-        logging.debug(f"Description: {e}")
-    ```
+**Oprava:**
+```python
+try:
+    meta = yaml.safe_load(header) or {}
+except (yaml.YAMLError, ValueError) as e:
+    logging.debug(f"Failed to parse YAML in {file_path}: {e}")
+    meta = {}
+except KeyboardInterrupt:
+    raise  # Vždy propaguj Ctrl+C!
+```
 
-### 11. Type hints
-- [ ] **Přidat type hints k všem public metodám**
-  - Soubor: `tantivy2agents.py`
-  - Všechny metody TantivyAgent třídy
-  - Čas: 3 hodiny
-  - Dopad: VYSOKÝ - zlepší maintainability a IDE support
-  - Příklad:
-    ```python
-    from typing import Optional, List, Dict, Any, Tuple
-
-    def _load_config(self) -> Dict[str, Any]:
-        """Load configuration from JSON file with defaults"""
-
-    def _get_files_for_indexing(self, show_dirs: bool = False,
-                                show_files: bool = False) -> Tuple[List[str], List[str]]:
-        """Get list of files to index"""
-    ```
-
-### 12. Chybějící LICENSE soubor
-- [ ] **Vytvořit LICENSE soubor s MIT licencí**
-  - Nový soubor: `LICENSE`
-  - Čas: 10 minut
-  - Dopad: VYSOKÝ - právní požadavek
-  - Poznámka: README zmiňuje MIT License, ale soubor chybí
-
-### 13. Config dokumentace
-- [ ] **Opravit nesrovnalost v příkladech konfigurace**
-  - Soubor: `README.md`, `examples/.tantivi2agents.json`
-  - Čas: 15 minut
-  - Problém: Příklady ukazují `.tantivi2agents`, ale default je `.tantivy-data`
+**Checklist:**
+- [ ] Line 368: File reading exception
+- [ ] Line 397: Indexing exception
+- [ ] Line 502: Encoding detection
+- [ ] Line 538: UTF-8 decode
+- [ ] Line 541: Fallback encoding
+- [ ] Line 562: Chardet detection
+- [ ] Line 575: YAML parsing
+- [ ] Line 647: YAML error
+- [ ] Line 764: Search error
+- [ ] Line 1243: Config loading
+- [ ] Line 1368: Import error
+- [ ] Line 1441: Index info access
+- [ ] Line 1486: Rebuild check
+- [ ] Lines 502-563: Multiple encoding fallbacks
+- [ ] Line 1413: Status command exception
+- [ ] Line 1429: Searcher operations
 
 ---
 
-## 🔧 STŘEDNÍ PRIORITA - Technický dluh (12-15 hodin)
+### 2. Přidat type hints ke všem metodám ⭐
+- **Priorita:** 🔴 HIGH pro maintainability
+- **Čas:** 3-4 hodiny
+- **Dopad:** Lepší IDE podpora, méně bugů, lepší dokumentace
 
-### 14. Duplicitní kód - Hook Installation
-- [ ] **Sloučit _install_claude_hooks_in_target() a _install_claude_hooks()**
-  - Soubor: `tantivy2agents.py`
-  - Řádky: 1024-1075 vs 1107-1159
-  - Čas: 30 minut
-  - Úspora: 50+ řádků kódu
+**Současný stav:** 0 type hints v celé kódové bázi
 
-### 15. Mrtvý kód - bin/ adresář
-- [ ] **ODSTRANIT celý bin/ adresář**
-  - Adresář: `bin/`
-  - Soubory: tantivy-search, tantivy-index, tantivy-hook, tantivy-clear
-  - Čas: 15 minut
-  - Úspora: 319 řádků mrtvého kódu
-  - Důvod: Používá staré cesty, není dokumentováno, jiná implementace
+**Fáze implementace:**
 
-### 16. Dlouhé metody
-- [ ] **Refaktorovat _get_files_for_indexing (102 řádků)**
-  - Soubor: `tantivy2agents.py`
-  - Řádky: 322-424
-  - Čas: 1 hodina
-  - Rozdělit na: _expand_patterns, _filter_files, _apply_exclusions
+**Fáze 1: Public API (1 hodina)**
+```python
+from typing import Optional, List, Dict, Any, Tuple
 
-- [ ] **Refaktorovat status_command (132 řádků)**
-  - Soubor: `tantivy2agents.py`
-  - Řádky: 1371-1503
-  - Čas: 1 hodina
-  - Rozdělit na: _get_index_stats, _check_index_health, _display_status
+# Command methods
+def index_command(self, force: bool = False, show_dirs: bool = False,
+                 show_files: bool = False) -> None:
+    """Index documents"""
 
-- [ ] **Refaktorovat encoding_info_command (92 řádků)**
-  - Soubor: `tantivy2agents.py`
-  - Řádky: 1180-1272
-  - Čas: 45 minut
+def search_command(self, query: str, limit: Optional[int] = None,
+                  format_output: Optional[str] = None,
+                  output_file: Optional[str] = None) -> None:
+    """Search indexed documents"""
 
-- [ ] **Refaktorovat setup_command (97 řádků)**
-  - Soubor: `tantivy2agents.py`
-  - Řádky: 1273-1370
-  - Čas: 45 minut
+def clear_command(self) -> None:
+    """Clear index"""
+```
 
-### 17. JSON Schema validace
-- [ ] **Přidat validaci konfigurace pomocí jsonschema**
-  - Soubor: `tantivy2agents.py`
-  - Metoda: `_load_config`
-  - Čas: 1 hodina
-  - Závislost: Přidat `jsonschema` do requirements.txt
+**Fáze 2: Internal methods (2 hodiny)**
+```python
+def _load_config(self) -> Dict[str, Any]:
+    """Load configuration from JSON file with defaults"""
 
-### 18. Structured Logging
-- [ ] **Implementovat logging framework**
-  - Soubor: `tantivy2agents.py`
-  - Čas: 2 hodiny
-  - Nahradit print() calls s logging
-  - Přidat logging levels (DEBUG, INFO, WARNING, ERROR)
+def _get_files_for_indexing(self, show_dirs: bool = False,
+                           show_files: bool = False) -> Tuple[List[str], List[str]]:
+    """Get list of files to index"""
 
-### 19. Chybějící test cases
-- [ ] **Přidat testy pro error cases**
-  - Soubor: `tests/test_basic.py`
-  - Čas: 2 hodiny
-  - Nové testy:
-    - `test_malformed_config()`
-    - `test_permission_denied()`
-    - `test_corrupted_index()`
-    - `test_large_file_handling()`
-    - `test_invalid_query_syntax()`
+def _read_file_with_encoding_detection(self, file_path: str) -> Tuple[Optional[str], str]:
+    """Read file with automatic encoding detection"""
+```
 
-- [ ] **Přidat testy pro edge cases**
-  - Soubor: `tests/test_encoding.py`
-  - Čas: 1 hodina
-  - Nové testy:
-    - `test_high_confidence_detection()`
-    - `test_binary_with_text_content()`
+**Fáze 3: Helper methods (1 hodina)**
+```python
+def _is_binary_file(self, file_path: str, content_bytes: Optional[bytes] = None) -> bool:
+    """Check if file is binary"""
 
-### 20. Test duplicity
-- [ ] **Vytvořit pytest fixture pro TantivyAgent import**
-  - Nový soubor: `tests/conftest.py`
-  - Čas: 30 minut
-  - Odstranit duplicitní import kód z 7 míst v test_basic.py
+def _parse_markdown(self, file_path: str) -> Tuple[Dict[str, Any], str]:
+    """Parse markdown file and extract metadata"""
+```
 
-### 21. Dependency update
-- [ ] **Aktualizovat PyYAML na nejnovější verzi**
-  - Soubor: `requirements.txt`
-  - Čas: 30 minut
-  - Současná: 6.0.2 → Nová: 6.0.3+ (security fix)
-  - Spustit všechny testy po update
-
-### 22. CHANGELOG
-- [ ] **Vytvořit CHANGELOG.md**
-  - Nový soubor: `CHANGELOG.md`
-  - Čas: 1 hodina
-  - Dokumentovat historii změn z git logu
-
-### 23. CONTRIBUTING guide
-- [ ] **Vytvořit CONTRIBUTING.md**
-  - Nový soubor: `CONTRIBUTING.md`
-  - Čas: 1 hodina
-  - Odkazy na .claude/CLAUDE.md pravidla
-  - Vývojářský workflow
+**Checklist:**
+- [ ] `__init__` method
+- [ ] 7 command methods (index, search, clear, install, etc.)
+- [ ] 4 config methods (_load_config, _get_default_config, etc.)
+- [ ] 3 file discovery methods
+- [ ] 3 encoding detection methods
+- [ ] 1 markdown parsing method
+- [ ] 3 indexing methods
+- [ ] 5 searching methods
+- [ ] 4 export methods
+- [ ] 7 installation methods
 
 ---
 
-## 🏗️ DLOUHODOBÉ - Architektura (30-40 hodin)
+### 3. Odstranit duplicitní kód - Hook Installation ⭐
+- **Priorita:** 🔴 HIGH
+- **Čas:** 30-45 minut
+- **Úspora:** 50+ řádků kódu
+- **Dopad:** Údržba, konzistence
 
-### 24. Modulární struktura
-- [ ] **Rozdělit monolitický soubor do modulů**
-  - Čas: 12 hodin
-  - Vytvořit package strukturu:
-    ```
-    tantivy2agents/
-    ├── __init__.py
-    ├── config/
-    │   ├── __init__.py
-    │   ├── loader.py
-    │   └── defaults.py
-    ├── core/
-    │   ├── __init__.py
-    │   ├── scanner.py
-    │   ├── indexer.py
-    │   ├── searcher.py
-    │   └── parser.py
-    ├── encoding/
-    │   ├── __init__.py
-    │   └── detector.py
-    ├── export/
-    │   ├── __init__.py
-    │   └── exporters.py
-    ├── install/
-    │   ├── __init__.py
-    │   └── installer.py
-    ├── cli/
-    │   ├── __init__.py
-    │   └── commands.py
-    └── main.py
-    ```
+**Problém:** Dvě téměř identické metody (90% duplicita)
+- `_install_claude_hooks_in_target()` (řádky 1024-1075)
+- `_install_claude_hooks()` (řádky 1107-1159)
 
-### 25. Dependency Injection
-- [ ] **Implementovat DI pattern**
-  - Čas: 4 hodiny
-  - Odstranit tight coupling
-  - Zlepšit testovatelnost
+**Oprava:**
+```python
+def _install_claude_hooks(self, target_root: Optional[str] = None,
+                         use_absolute_path: bool = False) -> None:
+    """Unified hook installation method
 
-### 26. Tantivy Abstraction Layer
-- [ ] **Vytvořit TantivyRepository abstrakci**
-  - Čas: 3 hodiny
-  - Odstranit přímé Tantivy volání z business logiky
-  - Zlepšit testovatelnost
+    Args:
+        target_root: Target project root (None = self.project_root)
+        use_absolute_path: Use absolute path vs relative tools/ path
+    """
+    target_root = target_root or self.project_root
 
-### 27. Config management
-- [ ] **Přesunout default config do samostatného souboru**
-  - Nový soubor: `tantivy2agents/config/defaults.json`
-  - Čas: 1 hodina
-  - Odstranit 70+ řádků inline config z kódu
+    if use_absolute_path:
+        hook_command = os.path.abspath(__file__)
+    else:
+        hook_command = os.path.join(target_root, 'tools', 'tantivy2agents.py')
 
-### 28. Environment variables
-- [ ] **Přidat podporu pro environment variables**
-  - Čas: 2 hodiny
-  - Proměnné:
-    - `TANTIVY_INDEX_DIR`
-    - `TANTIVY_CONFIG_PATH`
-    - `TANTIVY_PROJECT_ROOT`
+    # ... zbytek sdílené logiky
+
+# Pak použít:
+def install_command(...):
+    self._install_claude_hooks(target_root, use_absolute_path=False)
+
+def _setup_current_project():
+    self._install_claude_hooks(use_absolute_path=True)
+```
 
 ---
 
-## 🎯 VOLITELNÉ - Rozšíření
+### 4. Odstranit mrtvý kód - bin/ adresář
+- **Priorita:** 🟡 MEDIUM
+- **Čas:** 15 minut
+- **Úspora:** 319 řádků kódu
+- **Dopad:** Čistota projektu, méně zmatenosti
 
-### 29. Performance optimalizace
-- [ ] **Implementovat parallel file scanning**
-  - Čas: 4 hodiny
-  - Použít multiprocessing pro velké projekty
+**Soubory k odstranění:**
+```bash
+rm -rf bin/
+# Obsahuje:
+# - bin/tantivy-search (160 řádků)
+# - bin/tantivy-index (112 řádků)
+# - bin/tantivy-hook (32 řádků)
+# - bin/tantivy-clear (15 řádků)
+```
 
-- [ ] **Přidat index optimization po build**
-  - Čas: 2 hodiny
-  - Volat Tantivy merge/optimize
-
-### 30. Plugin systém
-- [ ] **Vytvořit plugin systém pro exporters**
-  - Čas: 6 hodin
-  - Umožnit custom export formáty
-
-### 31. Async support
-- [ ] **Přidat async/await pro I/O operace**
-  - Čas: 8 hodin
-  - Použít asyncio pro file operations
-
----
-
-## 📋 Rychlé výhry (< 2 hodiny celkem)
-
-> Tyto úkoly mají vysoký dopad a nízké náklady
-
-- [ ] **#21: Aktualizovat PyYAML** (10 min) → Bezpečnostní fix
-- [ ] **#15: Odstranit bin/ adresář** (15 min) → -319 řádků
-- [ ] **#14: Sloučit hook metody** (30 min) → -50 řádků
-- [ ] **#8: Odstranit duplicitní importy** (15 min) → Cleanup
-- [ ] **#12: Přidat LICENSE** (10 min) → Právní požadavek
-- [ ] **#13: Opravit config docs** (15 min) → Dokumentace
-
-**Celkový čas:** 1.5 hodiny
-**Celkový dopad:** Bezpečnostní update + odstranění 370+ řádků kódu
+**Důvody:**
+- Používá staré cesty `.tantivy/idx` místo `.tantivy-data`
+- Není dokumentováno v README
+- Jiná implementace než main script
+- Redundantní s unifikovaným `tantivy2agents.py`
 
 ---
 
-## 📊 Plán podle priorit
+### 5. Odstranit duplicitní importy
+- **Priorita:** 🟡 MEDIUM
+- **Čas:** 15 minut
+- **Dopad:** Čistota kódu, mírné zlepšení performance
 
-### Fáze 1: Bezpečnost (Týden 1)
-**Čas:** 4-6 hodin
-**Úkoly:** #1-7
-**Výstup:** Bezpečná aplikace připravená pro produkci
+**Problém 1: Duplicitní import v metodě**
+```python
+# Line 428
+def _match_pattern(self, path, pattern):
+    import fnmatch  # ❌ Již importováno na řádku 32
+    return fnmatch.fnmatch(path, pattern)
+```
 
-### Fáze 2: Kvalita (Týden 2-3)
-**Čas:** 6-8 hodin
-**Úkoly:** #8-13
-**Výstup:** Čistý, správný kód s type hints
+**Oprava:** Odstranit lokální import
 
-### Fáze 3: Udržovatelnost (Měsíc 1)
-**Čas:** 12-15 hodin
-**Úkoly:** #14-23
-**Výstup:** Udržovatelný projekt s nízkim technickým dluhem
+**Problém 2: Method-level importy (6 výskytů)**
+```python
+# Lines 795, 796, 825-827, 862, 867, 1375
+def _export_json(self, results, query, output_file):
+    import json  # ❌ Již importováno na řádku 22
+    from datetime import datetime  # ❌ Již importováno na řádku 29
+```
 
-### Fáze 4: Architektura (Měsíc 2-3)
-**Čas:** 30-40 hodin
-**Úkoly:** #24-28
-**Výstup:** Modulární, škálovatelná architektura
+**Oprava:** Odstranit všechny method-level importy
+
+**Checklist:**
+- [ ] Line 428: fnmatch v _match_pattern
+- [ ] Line 795-796: json, datetime v _export_json
+- [ ] Line 825-827: csv, datetime v _export_csv
+- [ ] Line 862: sys v _export_txt
+- [ ] Line 867: sys v _export_txt
+- [ ] Line 1375: sys v status_command
 
 ---
 
-## 🎯 Milestones
+### 6. Opravit neplatné Tantivy API použití
+- **Priorita:** 🟡 MEDIUM
+- **Čas:** 30 minut
+- **Dopad:** Správnost, lepší chybové hlášky
 
-### Milestone 1: Produkční nasazení
-- ✅ Všechny kritické bezpečnostní problémy opraveny (#1-7)
-- ✅ Kritické chyby kódu opraveny (#8-11)
-- ✅ LICENSE soubor přidán (#12)
-- **ETA:** 10-14 hodin
-- **Stav:** READY FOR DEPLOYMENT
+**Problém:**
+```python
+# Line 1439 v status_command
+try:
+    total_docs = len(searcher)  # ❌ Searcher nepodporuje len()
+    print(f"   Searchable docs: {total_docs:,}")
+except:
+    print("   Searchable docs: N/A")
+```
 
-### Milestone 2: Kvalitní kódová báze
-- ✅ Milestone 1 dokončen
-- ✅ Type hints přidány (#11)
-- ✅ Technický dluh odstraněn (#14-20)
-- ✅ Dokumentace kompletní (#22-23)
-- **ETA:** 24-29 hodin
-- **Stav:** HIGH QUALITY CODEBASE
+**Oprava:**
+```python
+try:
+    # Použít správné Tantivy API
+    total_docs = searcher.num_docs()  # nebo jiné správné volání
+    print(f"   Searchable docs: {total_docs:,}")
+except AttributeError:
+    # Pokud API neexistuje v této verzi Tantivy
+    print("   Searchable docs: N/A (API not available)")
+except Exception as e:
+    logging.debug(f"Failed to get doc count: {e}")
+    print("   Searchable docs: N/A")
+```
 
-### Milestone 3: Škálovatelná architektura
-- ✅ Milestone 2 dokončen
-- ✅ Modulární struktura (#24)
-- ✅ Dependency injection (#25)
-- ✅ Abstraction layers (#26)
-- **ETA:** 54-69 hodin
-- **Stav:** SCALABLE ARCHITECTURE
+**TODO:** Ověřit správné Tantivy API pro získání počtu dokumentů
+
+---
+
+### 7. Refaktorovat příliš dlouhé metody
+- **Priorita:** 🟡 MEDIUM
+- **Čas:** 3-4 hodiny
+- **Dopad:** Čitelnost, testovatelnost
+
+**Metody k refactoringu:**
+
+#### 7.1 `_get_files_for_indexing` (102 řádků, lines 322-424)
+**Rozdělit na:**
+```python
+def _get_files_for_indexing(self, show_dirs=False, show_files=False):
+    """Main orchestration"""
+    dirs, patterns = self._expand_configuration()
+    files = self._collect_files_from_sources(dirs, patterns, show_files)
+    unique_files = self._deduplicate_files(files)
+    return unique_files, dirs
+
+def _expand_configuration(self) -> Tuple[List[str], List[str]]:
+    """Expand patterns from config"""
+
+def _collect_files_from_sources(self, dirs, patterns, show_files) -> List[str]:
+    """Collect files from all sources"""
+
+def _deduplicate_files(self, files: List[str]) -> List[str]:
+    """Remove duplicates while preserving order"""
+```
+
+#### 7.2 `status_command` (132 řádků, lines 1371-1503)
+**Rozdělit na:**
+```python
+def status_command(self):
+    """Main status display"""
+    if not self._check_index_exists():
+        return
+
+    stats = self._gather_index_stats()
+    self._display_status(stats)
+
+def _gather_index_stats(self) -> Dict[str, Any]:
+    """Collect all statistics"""
+
+def _display_status(self, stats: Dict[str, Any]) -> None:
+    """Format and print status"""
+```
+
+#### 7.3 `encoding_info_command` (92 řádků, lines 1180-1272)
+**Rozdělit na podobně**
+
+#### 7.4 `setup_command` (97 řádků, lines 1273-1370)
+**Rozdělit na podobně**
+
+---
+
+### 8. Opravit nebezpečnou kontrolu scope proměnných
+- **Priorita:** 🟡 MEDIUM
+- **Čas:** 20 minut
+- **Dopad:** Správnost, robustnost
+
+**Problém:**
+```python
+# Lines 1457, 1491
+if 'index_info' in locals():
+    needs_rebuild = self._should_rebuild_index(data_dir)
+```
+
+**Oprava:**
+```python
+# Explicitní sledování
+index_info_loaded = False
+index_info = None
+
+try:
+    with open(index_info_path) as f:
+        index_info = json.load(f)
+    index_info_loaded = True
+except FileNotFoundError:
+    pass
+
+# Později
+if index_info_loaded:
+    needs_rebuild = self._should_rebuild_index(data_dir)
+```
+
+---
+
+## 🟡 STŘEDNÍ PRIORITA - Safety & Robustnost (8-10 hodin)
+
+> Prevence nehod, ne bezpečnostních útoků
+
+### 9. Přidat user confirmations pro destruktivní operace
+- **Priorita:** 🟡 MEDIUM (safety)
+- **Čas:** 1 hodina
+- **Dopad:** Prevence náhodné ztráty dat
+
+**Pro `clear` command:**
+```python
+def clear_command(self):
+    """Clear index with user confirmation"""
+    if os.path.exists(data_dir):
+        print(f"⚠️  This will delete: {data_dir}")
+        print(f"   Size: {self._get_dir_size(data_dir)}")
+        response = input("Continue? (y/N): ")
+        if response.lower() != 'y':
+            print("❌ Cancelled")
+            return
+
+    shutil.rmtree(data_dir)
+    print("✅ Index cleared")
+```
+
+**Pro `--force` flag:**
+```python
+def index_command(self, force=False, ...):
+    if force and os.path.exists(index_dir):
+        print("⚠️  --force will rebuild entire index")
+        response = input("Continue? (y/N): ")
+        if response.lower() != 'y':
+            print("❌ Cancelled")
+            return
+```
+
+---
+
+### 10. Přidat path validation (safety checks)
+- **Priorita:** 🟡 MEDIUM (prevence nehod)
+- **Čas:** 2 hodiny
+- **Dopad:** Prevence náhodného poškození souborů
+
+**Poznámka:** Pro local CLI to není security issue, ale **prevence chyb**.
+
+#### 10.1 Validace výstupních cest
+```python
+def _validate_output_path(self, output_file: str) -> str:
+    """Warn if output path is outside current directory"""
+    abs_path = os.path.abspath(output_file)
+    current_dir = os.path.abspath(os.getcwd())
+
+    if not abs_path.startswith(current_dir):
+        print(f"⚠️  Warning: Output path outside current directory")
+        print(f"   Path: {output_file}")
+        response = input("Continue? (y/N): ")
+        if response.lower() != 'y':
+            raise ValueError("Output cancelled by user")
+
+    return abs_path
+```
+
+#### 10.2 Validace glob patterns
+```python
+def _validate_path_pattern(self, pattern: str) -> str:
+    """Warn about patterns that go outside project"""
+    if os.path.isabs(pattern):
+        print(f"⚠️  Warning: Absolute path in config: {pattern}")
+        print("   This will index files outside project directory")
+        response = input("Continue? (y/N): ")
+        if response.lower() != 'y':
+            raise ValueError("Indexing cancelled")
+
+    if ".." in pattern:
+        print(f"⚠️  Warning: Parent directory pattern: {pattern}")
+        # ... similar
+
+    return pattern
+```
+
+#### 10.3 Safe rmtree
+```python
+def _safe_rmtree(self, path: str) -> None:
+    """Delete with symlink detection"""
+    abs_path = os.path.abspath(path)
+
+    # Check within project
+    if not abs_path.startswith(os.path.abspath(self.project_root)):
+        raise ValueError(f"Cannot delete outside project: {path}")
+
+    # Warn about symlinks
+    if os.path.islink(path):
+        print(f"⚠️  Warning: {path} is a symlink!")
+        print(f"   Target: {os.readlink(path)}")
+        response = input("Delete symlink only? (y/N): ")
+        if response.lower() == 'y':
+            os.unlink(path)
+            return
+        else:
+            raise ValueError("Delete cancelled")
+
+    shutil.rmtree(abs_path)
+```
+
+---
+
+### 11. Implementovat structured logging
+- **Priorita:** 🟡 MEDIUM
+- **Čas:** 2 hodiny
+- **Dopad:** Lepší debugging, troubleshooting
+
+```python
+import logging
+
+# Setup
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('.tantivy-data/tantivy.log'),
+        logging.StreamHandler()  # Also print to console
+    ]
+)
+
+logger = logging.getLogger('tantivy2agents')
+
+# Usage
+logger.debug(f"Reading file: {file_path}")
+logger.info(f"Indexed {len(docs)} documents")
+logger.warning(f"Skipped binary file: {file_path}")
+logger.error(f"Failed to read {file_path}: {e}")
+```
+
+**Nahradit:**
+- `print()` statements pro debugging → `logger.debug()`
+- Success messages → `logger.info()`
+- Warnings → `logger.warning()`
+- Errors → `logger.error()`
+
+---
+
+### 12. JSON Schema validace konfigurace
+- **Priorita:** 🟡 MEDIUM
+- **Čas:** 1.5 hodiny
+- **Dopad:** Prevence chyb v konfiguraci
+
+```python
+import jsonschema
+
+CONFIG_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "version": {"type": "string"},
+        "index_dir": {"type": "string"},
+        "global_patterns": {
+            "type": "object",
+            "properties": {
+                "include": {"type": "array", "items": {"type": "string"}},
+                "exclude": {"type": "array", "items": {"type": "string"}}
+            }
+        },
+        # ...
+    },
+    "required": ["version"]
+}
+
+def _load_config(self):
+    """Load and validate configuration"""
+    # ... load JSON
+
+    try:
+        jsonschema.validate(user_config, CONFIG_SCHEMA)
+    except jsonschema.ValidationError as e:
+        logger.error(f"Invalid configuration: {e.message}")
+        print(f"❌ Configuration error: {e.message}")
+        print(f"   Path: {' > '.join(str(p) for p in e.path)}")
+        print("   Using default configuration.")
+        return default_config
+
+    # ... merge configs
+```
+
+**Přidat do requirements.txt:**
+```
+jsonschema>=4.0.0
+```
+
+---
+
+### 13. Aktualizovat PyYAML dependency
+- **Priorita:** 🟡 MEDIUM (best practices)
+- **Čas:** 30 minut
+- **Dopad:** Security updates, bug fixes
+
+**Současně:** `PyYAML==6.0.2`
+**Aktualizovat na:** `PyYAML>=6.0.3`
+
+```bash
+# 1. Update requirements.txt
+echo "PyYAML==6.0.3" > requirements.txt.new
+
+# 2. Test
+pip install PyYAML==6.0.3
+python run_tests.py
+
+# 3. If tests pass, update
+mv requirements.txt.new requirements.txt
+```
+
+---
+
+### 14. Přidat chybějící testy (error cases)
+- **Priorita:** 🟡 MEDIUM
+- **Čas:** 3 hodiny
+- **Dopad:** Lepší test coverage, jistota
+
+**Nové testy:**
+
+```python
+# tests/test_error_cases.py
+
+def test_malformed_json_config(tmp_path):
+    """Test handling of invalid JSON config"""
+    config_file = tmp_path / ".tantivi2agents.json"
+    config_file.write_text("{invalid json}")
+
+    agent = TantivyAgent(config_path=str(config_file))
+    # Should fall back to defaults
+    assert agent.config['version'] == '1.0'
+
+def test_config_with_invalid_types(tmp_path):
+    """Test config with wrong value types"""
+    config_file = tmp_path / ".tantivi2agents.json"
+    config_file.write_text('{"index_dir": 123}')  # Should be string
+    # ... assert graceful handling
+
+def test_large_file_handling(tmp_path):
+    """Test files > 100MB are skipped"""
+    # Create large file
+    large_file = tmp_path / "large.txt"
+    large_file.write_bytes(b"x" * (100 * 1024 * 1024 + 1))
+    # ... assert skipped with warning
+
+def test_permission_denied(tmp_path):
+    """Test handling of unreadable files"""
+    # ...
+
+def test_corrupted_index():
+    """Test recovery from corrupted index files"""
+    # ...
+```
+
+---
+
+### 15. Vytvořit pytest fixture pro TantivyAgent
+- **Priorita:** 🟢 LOW
+- **Čas:** 30 minut
+- **Úspora:** Odstranit duplicitní import kód ze 7 míst
+
+```python
+# tests/conftest.py
+import pytest
+import importlib.util
+import os
+
+@pytest.fixture
+def TantivyAgent():
+    """Load TantivyAgent class"""
+    script_path = os.path.join(
+        os.path.dirname(__file__), "..", "tantivy2agents.py"
+    )
+    spec = importlib.util.spec_from_file_location("tantivy_agent", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.TantivyAgent
+
+# Pak v testech:
+def test_something(TantivyAgent, tmp_path):
+    agent = TantivyAgent()
+    # ...
+```
+
+---
+
+## 🟢 NÍZKÁ PRIORITA - Architektura (30+ hodin)
+
+> Long-term improvements, ne urgentní
+
+### 16. Modulární struktura
+- **Priorita:** 🟢 LOW (nice to have)
+- **Čas:** 12+ hodin
+- **Dopad:** Lepší organizace, škálovatelnost
+
+**Poznámka:** Pro small CLI tool může být overkill. Zvážit pouze pokud projekt roste.
+
+```
+tantivy2agents/
+├── __init__.py
+├── config/
+│   ├── loader.py
+│   └── defaults.py
+├── core/
+│   ├── scanner.py
+│   ├── indexer.py
+│   └── searcher.py
+├── cli/
+│   └── commands.py
+└── main.py
+```
+
+### 17. Dependency Injection
+- **Priorita:** 🟢 LOW
+- **Čas:** 4 hodiny
+- **Dopad:** Lepší testovatelnost (ale testy už jsou dobré)
+
+### 18. Environment variables
+- **Priorita:** 🟢 LOW
+- **Čas:** 2 hodiny
+
+---
+
+## 🎯 Rychlé Výhry (< 2 hodiny celkem)
+
+**Vysoký dopad, nízké náklady:**
+
+1. ✅ **Opravit config example** (15 min) → **HOTOVO**
+2. ✅ **Přidat LICENSE** (10 min) → **HOTOVO**
+3. **Odstranit bin/ adresář** (15 min) → -319 řádků kódu
+4. **Odstranit duplicitní importy** (15 min) → Čistota kódu
+5. **Sloučit hook metody** (30 min) → -50 řádků kódu
+6. **Aktualizovat PyYAML** (30 min) → Best practices
+
+**Celkem:** 2 hodiny = -370 řádků kódu + lepší kvalita
+
+---
+
+## 📊 Přepracované Priority
+
+### Fáze 1: CODE QUALITY (Týden 1-2) - 8-12 hodin ⭐
+**NEJVYŠŠÍ PRIORITA pro lokální CLI nástroj**
+
+**Úkoly:** #1-8
+- Bare except fixes
+- Type hints
+- Remove duplicate code
+- Remove dead code
+- Fix API usage
+- Refactor long methods
+
+**Výstup:** Čistý, udržovatelný kód s dobrým debugging
+
+### Fáze 2: SAFETY & ROBUSTNOST (Týden 3-4) - 8-10 hodin
+**STŘEDNÍ PRIORITA**
+
+**Úkoly:** #9-15
+- User confirmations
+- Path validation (safety, ne security)
+- Structured logging
+- Config validation
+- More tests
+- PyYAML update
+
+**Výstup:** Robustní nástroj s prevencí nehod
+
+### Fáze 3: ARCHITEKTURA (Měsíc 2-3) - 30+ hodin
+**NÍZKÁ PRIORITA** (zvážit podle růstu projektu)
+
+**Úkoly:** #16-18
+- Modulární struktura
+- Dependency injection
+- Environment variables
+
+**Výstup:** Škálovatelná architektura (pokud potřeba)
+
+---
+
+## 🎯 Milestones (Updated)
+
+### Milestone 1: Quality Codebase ⭐
+**Target:** 2-3 týdny
+- ✅ Type hints všude
+- ✅ Bare excepts opraveny
+- ✅ Duplicitní kód odstraněn
+- ✅ Mrtvý kód odstraněn
+- **ETA:** 8-12 hodin
+- **Status:** Recommended for local CLI tool
+
+### Milestone 2: Robustní Tool
+**Target:** 1 měsíc
+- ✅ Milestone 1
+- ✅ Safety checks
+- ✅ Logging framework
+- ✅ Config validation
+- ✅ Comprehensive tests
+- **ETA:** 16-22 hodin
+- **Status:** Nice to have
+
+### Milestone 3: Scalable Architecture
+**Target:** 2-3 měsíce
+- ✅ Milestone 2
+- ✅ Modulární struktura
+- ✅ DI pattern
+- **ETA:** 46-62 hodin
+- **Status:** Optional, consider if project grows
 
 ---
 
 ## 📈 Tracking
 
 ### Statistiky
-- **Celkový počet úkolů:** 31
-- **Kritické:** 7 (bezpečnost)
-- **Vysoké:** 6 (kvalita kódu)
-- **Střední:** 10 (technický dluh)
-- **Dlouhodobé:** 5 (architektura)
-- **Volitelné:** 3 (rozšíření)
+- **Celkový počet úkolů:** 18 (down from 31)
+- **Vysoká priorita (Code Quality):** 8 úkolů
+- **Střední priorita (Safety):** 7 úkolů
+- **Nízká priorita (Architecture):** 3 úkoly
 
 ### Časový odhad
-- **Minimální (produkce):** 10-14 hodin (Fáze 1+2 kritické)
-- **Doporučený (kvalita):** 22-29 hodin (Fáze 1+2+3)
-- **Plný refactoring:** 52-69 hodin (všechny fáze)
+- **Doporučené minimum (Quality):** 8-12 hodin (Fáze 1)
+- **Doporučené (Quality + Safety):** 16-22 hodin (Fáze 1+2)
+- **Plný refactoring (Optional):** 46-62 hodin (všechny fáze)
+
+### Doporučené Pořadí pro Lokální CLI
+1. 🔴 **Code Quality** (#1-8) → Údržba, debugging
+2. 🟡 **Safety Checks** (#9-15) → Prevence nehod
+3. 🟢 **Architecture** (#16-18) → Pouze pokud projekt roste
 
 ---
 
-**Poslední aktualizace:** 2025-11-22
-**Next review:** Po dokončení Fáze 1 (bezpečnost)
+## 📝 Poznámka o Security Issues
+
+**Důležité:** Všechny "security issues" z původního code review jsou **best practices** pro lokální CLI nástroj, NE kritické zranitelnosti.
+
+**Pro lokální CLI nástroj:**
+- Path traversal = **Safety check** (prevence nehod)
+- Command injection = **Best practice** (low risk)
+- Input validation = **Robustness** (ne security)
+
+**Best practices však zůstávají důležité!** Jen nejsou urgentní jako pro web app.
+
+---
+
+**Last Updated:** 2025-11-22
+**Tool Context:** Local CLI tool, priorities adjusted
+**Next Review:** Po dokončení Fáze 1 (Code Quality)

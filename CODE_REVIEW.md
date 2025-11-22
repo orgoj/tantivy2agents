@@ -6,6 +6,34 @@
 
 ---
 
+## ⚠️ DŮLEŽITÁ POZNÁMKA: Kontext Nástroje
+
+**Tento nástroj je LOKÁLNÍ CLI aplikace** určená pro izolované prostředí:
+- ✅ Běží lokálně na počítači vývojáře
+- ✅ Není vystaveno síti ani internetu
+- ✅ Uživatel kontroluje všechny vstupy
+- ✅ Žádné multi-user prostředí
+
+**Důsledky pro severity ratings:**
+
+| Severity v této zprávě | Skutečné riziko pro local CLI | Priorita |
+|------------------------|--------------------------------|----------|
+| 🔴 **CRITICAL Security** | 🟡 MEDIUM (safety, prevence nehod) | Střední |
+| 🟡 **HIGH Security** | 🟢 LOW (best practices) | Nízká |
+| 🔴 **HIGH Code Quality** | 🔴 HIGH (údržba, debugging) | **Vysoká** |
+| 🟡 **MEDIUM Best Practices** | 🔴 HIGH (maintainability) | **Vysoká** |
+
+**Pro lokální CLI nástroj jsou NEJVYŠŠÍ PRIORITOU:**
+1. 🔴 **Code quality** (type hints, bare excepts, duplicity) → Údržba & debugging
+2. 🟡 **Safety checks** (path validation, confirmations) → Prevence nehod
+3. 🟢 **Security hardening** (už dokumentováno, ale nízké riziko)
+
+**Security issues zůstávají zdokumentovány** (protože o nich víme), ale představují **nízké riziko** pro local CLI use case.
+
+Podrobnosti viz [SECURITY.md](SECURITY.md) a [TODO.md](TODO.md).
+
+---
+
 ## Manažerské shrnutí
 
 Projekt Tantivi2Agents je **funkční Python aplikace** pro full-text vyhledávání s CLI rozhraním, postavená na knihovně Tantivy. Kód funguje a má výborné testovací pokrytí (25 automatizovaných testů), ale obsahuje **významné bezpečnostní zranitelnosti** a **technický dluh** v oblasti architektury.

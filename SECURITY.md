@@ -1,166 +1,265 @@
 # Security Policy
 
+## Tool Context
+
+**Tantivi2Agents** je **lokální CLI nástroj** určený pro použití v izolovaném prostředí. Není určen pro:
+- ❌ Webové aplikace
+- ❌ Síťové služby
+- ❌ Multi-user prostředí
+- ❌ Zpracování nedůvěryhodných vstupů
+
+**Typické použití:** Vývojář indexuje vlastní projekty na svém lokálním počítači.
+
+**Důsledky pro bezpečnost:**
+- ✅ Riziko vzdálených útoků: **ŽÁDNÉ** (není vystaveno síti)
+- ✅ Riziko malicious input: **NÍZKÉ** (uživatel kontroluje vstupy)
+- ⚠️ Riziko nehod: **STŘEDNÍ** (chybná konfigurace může poškodit soubory)
+
+---
+
 ## Supported Versions
 
 | Version | Supported          | Security Status |
 | ------- | ------------------ | --------------- |
-| 1.0.x   | :white_check_mark: | 4 Critical issues identified |
+| 1.0.x   | :white_check_mark: | Known issues documented (low risk for local use) |
 | < 1.0   | :x:                | Not supported |
 
 ## Current Security Status
 
 **Last Security Review:** 2025-11-22
+**Context:** Local CLI tool, isolated environment
 
-### ⚠️ Known Critical Vulnerabilities
+### 📝 Known Security Issues (Best Practices)
 
-As of the latest code review (2025-11-22), **4 CRITICAL security vulnerabilities** have been identified and documented. See [CODE_REVIEW.md](CODE_REVIEW.md) Section 1 for complete details.
+Následující problémy byly identifikovány během code review. Pro **lokální CLI nástroj** představují **nízké bezpečnostní riziko**, ale jejich oprava zlepší **robustnost a prevenci chyb**.
 
-**Status:** 🔴 **NOT PRODUCTION READY** - Critical fixes required
-
-### Summary of Critical Issues
-
-1. **Path Traversal in File Export** (CRITICAL)
-   - OWASP: A01:2021 - Broken Access Control
-   - Impact: Arbitrary file write
-   - Status: ❌ Not fixed
-   - Fix Priority: IMMEDIATE
-
-2. **Path Traversal via Glob Patterns** (CRITICAL)
-   - OWASP: A03:2021 - Injection
-   - Impact: Arbitrary file read
-   - Status: ❌ Not fixed
-   - Fix Priority: IMMEDIATE
-
-3. **Unsafe Symlink Creation** (HIGH)
-   - OWASP: A01:2021 - Broken Access Control
-   - Impact: Symlink attacks
-   - Status: ❌ Not fixed
-   - Fix Priority: HIGH
-
-4. **Unsafe Directory Deletion** (HIGH)
-   - OWASP: A01:2021 - Broken Access Control
-   - Impact: Arbitrary directory deletion
-   - Status: ❌ Not fixed
-   - Fix Priority: HIGH
-
-**Full details:** See [CODE_REVIEW.md](CODE_REVIEW.md) Section 1
+**Status:** ✅ **VHODNÉ PRO LOKÁLNÍ POUŽITÍ** - Issues dokumentovány jako best practices
 
 ---
 
-## Reporting a Vulnerability
+### 1. Path Validation Issues
 
-### Please DO NOT
+**Kategorie:** Input Validation
+**Risk Level pro lokální CLI:** 🟡 LOW → MEDIUM (prevence nehod)
+**Risk Level pro web app:** 🔴 CRITICAL
 
-- ❌ Open a public GitHub issue for security vulnerabilities
-- ❌ Discuss vulnerabilities in public forums or social media
-- ❌ Exploit vulnerabilities maliciously
+#### 1.1 Chybějící validace výstupních cest
+**Lokace:** `tantivy2agents.py:817, 830, 865`
+**OWASP:** A01:2021 - Broken Access Control
 
-### Please DO
+**Problém:**
+```python
+if output_file:
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(export_data, f, indent=2, ensure_ascii=False)
+```
 
-1. **Check existing documentation first**
-   - Review [CODE_REVIEW.md](CODE_REVIEW.md) - Known vulnerabilities are documented
-   - Check [TODO.md](TODO.md) - Security fixes may be planned
+**Scénář nehody (ne útoku):**
+```bash
+# Omylem přepíše důležitý soubor
+python tantivy2agents.py search "test" --output "../important-data.json"
 
-2. **If it's a new vulnerability:**
-   - Contact the repository maintainers privately
-   - Include:
-     - Description of the vulnerability
-     - Steps to reproduce
-     - Potential impact
-     - Suggested fix (if any)
+# Typo v cestě
+python tantivy2agents.py search "test" --output "/etc/passwd"  # Selže na permissions, ale...
+```
 
-3. **Wait for acknowledgment**
-   - We aim to acknowledge within 48 hours
-   - We will work with you on disclosure timeline
+**Doporučená oprava (best practice):**
+```python
+def _validate_output_path(self, output_file):
+    """Prevence náhodného přepsání souborů mimo projekt"""
+    abs_path = os.path.abspath(output_file)
+    current_dir = os.path.abspath(os.getcwd())
 
----
+    if not abs_path.startswith(current_dir):
+        print(f"⚠️  Warning: Output path outside current directory: {output_file}")
+        response = input("Continue? (y/N): ")
+        if response.lower() != 'y':
+            raise ValueError("Output cancelled by user")
 
-## Security Review Process
+    return abs_path
+```
 
-This project undergoes regular security reviews:
-
-- **Automated:** Static analysis, dependency scanning
-- **Manual:** Comprehensive code reviews
-- **Documentation:** All findings documented in CODE_REVIEW.md
-
-### Latest Review
-
-**Date:** 2025-11-22
-**Method:** Comprehensive parallel agent analysis
-**Coverage:** 100% of codebase
-**Findings:** 15 security issues total
-  - 4 Critical
-  - 3 High
-  - 7 Medium
-  - 1 Low
-
-**Report:** [CODE_REVIEW.md](CODE_REVIEW.md)
+**Priorita:** 🟡 MEDIUM - Prevence nehod, ne bezpečnostní riziko
 
 ---
 
-## Security Best Practices for Users
+#### 1.2 Chybějící validace glob patterns
+**Lokace:** `tantivy2agents.py:290, 293, 307, 309`
 
-### Before Using This Tool
+**Problém:** Konfigurace může obsahovat absolutní cesty nebo `..`
 
-⚠️ **WARNING:** This version has known critical security vulnerabilities.
+**Scénář nehody:**
+```json
+{
+  "index_dirs": [
+    "/etc/**",  // Omylem
+    "../../../sensitive-data/**"  // Typo
+  ]
+}
+```
 
-**Recommendations:**
+**Doporučená oprava (safety check):**
+```python
+def _validate_path_pattern(self, pattern):
+    """Varování při podezřelých patterns"""
+    if os.path.isabs(pattern):
+        print(f"⚠️  Warning: Absolute path in config: {pattern}")
+        print("   This will index files outside project directory.")
+        response = input("Continue? (y/N): ")
+        if response.lower() != 'y':
+            raise ValueError("Indexing cancelled by user")
 
-1. **Do NOT use in production** until critical fixes are applied
-2. **Do NOT process untrusted input** (file paths, glob patterns)
-3. **Do NOT run with elevated privileges**
-4. **Use in isolated environment** (container, VM) for testing
-5. **Review configuration** before running indexing
+    if ".." in pattern:
+        print(f"⚠️  Warning: Parent directory traversal: {pattern}")
+        # ... similar confirmation
+```
 
-### Safe Usage Guidelines
-
-**If you must use the current version:**
-
-1. **Restrict file paths**
-   - Only index files within project directory
-   - Do not allow user-controlled paths in config
-
-2. **Validate configuration**
-   - Review `.tantivi2agents.json` manually
-   - Ensure no absolute paths or `..` in patterns
-
-3. **Limit export destinations**
-   - Only export to current directory
-   - Never use user-controlled output paths
-
-4. **Monitor activity**
-   - Review what files are being indexed
-   - Check output destinations
-
-5. **Isolate environment**
-   - Run in container or VM
-   - Restrict file system access
-   - Use dedicated user with minimal permissions
+**Priorita:** 🟡 MEDIUM - User safety, ne security
 
 ---
 
-## Security Checklist for Contributors
+#### 1.3 Nebezpečné mazání adresářů
+**Lokace:** `tantivy2agents.py:684, 936, 1178`
 
-When contributing code, ensure:
+**Problém:** `shutil.rmtree()` bez validace cesty
 
-- [ ] No path traversal vulnerabilities
-- [ ] All file paths are validated
-- [ ] No command injection risks
-- [ ] Input sanitization for user data
-- [ ] Secure file permissions (0o700 for sensitive files)
-- [ ] No hardcoded secrets or credentials
-- [ ] Dependencies are up to date
-- [ ] Subprocess calls use list form (not `shell=True`)
-- [ ] Error messages don't leak sensitive info
-- [ ] File operations check sizes before reading
+**Scénář nehody:**
+```bash
+# Symlink accident
+ln -s ~/important-data .tantivy-data
+python tantivy2agents.py clear  # Smaže important-data!
+```
 
-**Detailed guidelines:** [CONTRIBUTING.md](CONTRIBUTING.md) Security Section
+**Doporučená oprava (safety):**
+```python
+def _safe_rmtree(self, path):
+    """Prevence náhodného smazání důležitých dat"""
+    abs_path = os.path.abspath(path)
+
+    # Check it's within project
+    if not abs_path.startswith(os.path.abspath(self.project_root)):
+        raise ValueError(f"Cannot delete outside project: {path}")
+
+    # Check it's not a symlink
+    if os.path.islink(path):
+        print(f"⚠️  Warning: {path} is a symlink!")
+        print(f"   Target: {os.readlink(path)}")
+        response = input("Delete symlink (not target)? (y/N): ")
+        if response.lower() == 'y':
+            os.unlink(path)  # Delete symlink only
+            return
+        raise ValueError("Delete cancelled")
+
+    shutil.rmtree(abs_path)
+```
+
+**Priorita:** 🟢 LOW-MEDIUM - Nice to have safety check
+
+---
+
+### 2. Code Quality Issues (Higher Priority)
+
+Tyto problémy mají **vyšší prioritu** než security pro lokální CLI nástroj:
+
+#### 2.1 Bare except klauzule (16 výskytů)
+**Priorita:** 🔴 HIGH
+**Dopad:** Ztížené debugování, skryté chyby
+
+```python
+# Špatně - potlačuje i KeyboardInterrupt
+except:
+    pass
+
+# Dobře
+except (IOError, ValueError) as e:
+    logging.debug(f"Expected error: {e}")
+```
+
+#### 2.2 Chybějící type hints
+**Priorita:** 🔴 HIGH
+**Dopad:** Horší IDE podpora, více bugů
+
+#### 2.3 Duplicitní kód
+**Priorita:** 🟡 MEDIUM
+**Dopad:** Údržba, konzistence
+
+---
+
+## Security Best Practices for Local CLI Tools
+
+### Pro Uživatele
+
+**Bezpečné použití:**
+- ✅ Kontroluj konfiguraci před indexováním
+- ✅ Dávej pozor na cesty v `--output` flagů
+- ✅ Nepoužívej konfigurace z nedůvěryhodných zdrojů
+- ✅ Zálohuj data před použitím `clear` příkazu
+
+**Není potřeba:**
+- ❌ Spouštět v izolovaném kontejneru (overkill)
+- ❌ Omezovat file system permissions (běží jako ty)
+- ❌ Validovat každý vstup (kontroluješ ho sám)
+
+### Pro Vývojáře
+
+**Při přidávání features:**
+- ✅ Přidej user confirmation pro destruktivní operace
+- ✅ Validuj cesty jako prevenci nehod (ne útoků)
+- ✅ Loguj co nástroj dělá
+- ✅ Používej type hints a proper error handling
+
+**Není potřeba:**
+- ❌ Sanitizace proti injection útokům
+- ❌ Rate limiting, CSRF protection, atd.
+- ❌ Security audit každé změny
+
+---
+
+## Reporting Issues
+
+### Bezpečnostní problémy
+
+Pro lokální CLI nástroj jsou "security issues" většinou **quality/robustness issues**.
+
+**Pokud najdeš problém:**
+1. Check [CODE_REVIEW.md](CODE_REVIEW.md) - může být již dokumentován
+2. Check [TODO.md](TODO.md) - může být naplánována oprava
+3. Otevři běžný GitHub issue (není potřeba private disclosure)
+
+**Kdy použít private disclosure:**
+- Jen pokud problém umožňuje **skutečný útok** (nepravděpodobné pro local CLI)
+- Kontaktuj maintainera přímo
+
+### Quality/Robustness problémy
+
+Standardní GitHub issue process:
+- Otevři issue s popisem
+- Ideálně s reproducible example
+- Navrhni fix (pokud máš nápad)
+
+---
+
+## Known Issues Summary
+
+**Dokumentované v CODE_REVIEW.md:**
+
+| Kategorie | Count | Priorita pro Local CLI |
+|-----------|-------|----------------------|
+| **Path validation** | 4 | 🟡 MEDIUM (safety) |
+| **Code quality** | 10 | 🔴 HIGH |
+| **Python best practices** | 5 | 🔴 HIGH |
+| **Architecture** | 5 | 🟡 MEDIUM |
+| **Testing gaps** | 4 | 🟡 MEDIUM |
+
+**Doporučené pořadí:**
+1. 🔴 HIGH: Code quality (type hints, bare excepts, duplicity)
+2. 🟡 MEDIUM: Path validation (safety checks, confirmations)
+3. 🟡 MEDIUM: Architecture refactoring
+4. 🟢 LOW: Advanced features
 
 ---
 
 ## Dependencies Security
-
-### Current Dependencies
 
 ```
 PyYAML==6.0.2          # ⚠️ Update to 6.0.3 recommended
@@ -168,127 +267,45 @@ tantivy==0.24.0        # ✓ No known vulnerabilities
 charset-normalizer==3.3.2  # ✓ No known vulnerabilities
 ```
 
-### Dependency Policy
-
-- **Monitor:** All dependencies for CVEs
-- **Update:** Security patches within 7 days
-- **Pin:** Exact versions for reproducibility
-- **Audit:** Regular `pip-audit` / `safety` scans
-
-### Known Dependency Issues
-
-- **PyYAML 6.0.2:** May have known issues, update to 6.0.3+ recommended
-  - Status: ⚠️ Update planned (see TODO.md #21)
-  - Priority: MEDIUM
-  - Risk: Low (using `safe_load`)
+**Doporučení:**
+- Aktualizovat PyYAML (dobré praktiky)
+- Pravidelně spouštět `pip-audit` nebo `safety check`
 
 ---
 
-## Security Fixes Timeline
+## Changelog of Security Status
 
-### Immediate (Week 1)
-- [ ] Fix path traversal in exports (#1)
-- [ ] Validate glob patterns (#2)
-- [ ] Secure symlink creation (#3)
-- [ ] Safe directory deletion (#4)
-
-**ETA for secure release:** 4-6 hours development time
-
-### Short-term (Week 2-3)
-- [ ] Command injection fixes (#5, #6)
-- [ ] Config validation (#9)
-- [ ] Query sanitization (#10)
-
-### Ongoing
-- [ ] Dependency updates
-- [ ] Regular security audits
-- [ ] Automated security scanning
-
-**Full roadmap:** [TODO.md](TODO.md) Section 1
-
----
-
-## Security Disclosure Policy
-
-### Timeline
-
-1. **Day 0:** Vulnerability reported privately
-2. **Day 1-2:** Acknowledgment sent to reporter
-3. **Day 3-7:** Vulnerability validated and assessed
-4. **Day 7-14:** Fix developed and tested
-5. **Day 14:** Security patch released
-6. **Day 14+7:** Public disclosure (if coordinated)
-
-### Credit
-
-We will credit security researchers who:
-- Report vulnerabilities responsibly
-- Follow coordinated disclosure
-- Provide helpful details
-
-**Hall of Fame:** (To be added when applicable)
-
----
-
-## Security Tools
-
-### Recommended Tools for Analysis
-
-```bash
-# Dependency vulnerabilities
-pip install safety
-safety check
-
-pip install pip-audit
-pip-audit
-
-# Static analysis
-pip install bandit
-bandit -r tantivy2agents.py
-
-# Code quality
-pip install pylint
-pylint tantivy2agents.py
-```
-
-### CI/CD Integration
-
-Planned security checks (not yet implemented):
-- Automated dependency scanning
-- Static security analysis
-- Secret scanning
-- License compliance
+### 2025-11-22
+- **Initial security review** provedena
+- **Context clarified:** Lokální CLI nástroj, ne web aplikace
+- **Priority adjusted:** Best practices > Security for local use
+- Všechny findings dokumentovány v CODE_REVIEW.md
+- Roadmap v TODO.md
 
 ---
 
 ## Contact
 
-For security-related matters:
-
-- **Known issues:** See [CODE_REVIEW.md](CODE_REVIEW.md)
-- **New vulnerabilities:** Contact maintainers privately (repository maintainer contact)
-- **General security questions:** Open issue with `[Security Question]` prefix (for non-vulnerability questions)
-
----
-
-## Acknowledgments
-
-### Security Review Contributors
-
-- **2025-11-22:** Comprehensive code review by automated security analysis agents
-  - 4 parallel agents (Correctness, Security, Best Practices, Documentation)
-  - Coverage: 100% of codebase (2,721 lines)
-  - Findings: 52 total issues (15 security-related)
+Pro jakékoli otázky:
+- **Quality/robustness issues:** GitHub issues
+- **Feature requests:** GitHub issues
+- **Questions:** GitHub discussions nebo issues s `[Question]` prefix
 
 ---
 
-## Additional Resources
+## Poznámka o Severity Ratings
 
-- **OWASP Top 10:** https://owasp.org/www-project-top-ten/
-- **Python Security Best Practices:** https://python.readthedocs.io/en/latest/library/security_warnings.html
-- **CWE Database:** https://cwe.mitre.org/
+**Důležité:** Severity ratings v CODE_REVIEW.md jsou založeny na **web application context**.
+
+**Pro lokální CLI nástroj:**
+- "CRITICAL" → "MEDIUM" (safety, ne security)
+- "HIGH" → "LOW-MEDIUM" (best practices)
+- "MEDIUM" → "LOW" (nice to have)
+
+**Best practices však zůstávají VYSOKÁ PRIORITA** pro kvalitu kódu!
 
 ---
 
 **Last Updated:** 2025-11-22
-**Next Review:** After critical fixes are applied
+**Tool Context:** Local CLI tool for isolated environment use
+**Security Model:** User controls all inputs, no remote attack surface
