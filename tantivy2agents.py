@@ -28,6 +28,7 @@ import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 import glob
 import fnmatch
 import tantivy
@@ -41,7 +42,7 @@ except ImportError:
 class TantivyAgent:
     """Main Tantivy Agent class with all functionality"""
 
-    def __init__(self, config_path=None):
+    def __init__(self, config_path: Optional[str] = None) -> None:
         """Initialize agent with configuration"""
         self.project_root = self._find_project_root()
         self.config_path = config_path or os.path.join(self.project_root, '.tantivi2agents.json')
@@ -648,7 +649,7 @@ class TantivyAgent:
             # If we can't read index info or it's corrupt, rebuild
             return True
 
-    def index_command(self, force=False, show_dirs=False, show_files=False):
+    def index_command(self, force: bool = False, show_dirs: bool = False, show_files: bool = False) -> None:
         """Create or update document index"""
         print("🔍 Starting document indexing...")
 
@@ -712,7 +713,7 @@ class TantivyAgent:
         print(f"📍 Index saved to: {index_dir}")
         print("💡 You can now search with: python tantivy2agents.py search 'your query'")
 
-    def search_command(self, query, limit=None, format_output=None, output_file=None):
+    def search_command(self, query: str, limit: Optional[int] = None, format_output: Optional[str] = None, output_file: Optional[str] = None) -> None:
         """Search in indexed documents"""
         if not query:
             print("❌ Please provide a search query")
@@ -919,7 +920,7 @@ class TantivyAgent:
 
         return filtered
 
-    def clear_command(self):
+    def clear_command(self) -> None:
         """Clear the index"""
         print("🗑️  Clearing index...")
 
@@ -931,7 +932,7 @@ class TantivyAgent:
         else:
             print("ℹ️  No index directory found")
 
-    def install_command(self, target_dir=None, create_config=True):
+    def install_command(self, target_dir: Optional[str] = None, create_config: bool = True) -> None:
         """Install Tantivy Agent in target project with smart setup"""
         if target_dir:
             target_project_root = os.path.abspath(target_dir)
@@ -1103,7 +1104,7 @@ class TantivyAgent:
                     f.write(entry + '\n')
             print("✅ Created .gitignore")
 
-    def hook_clear_command(self):
+    def hook_clear_command(self) -> None:
         """Clear index when files are modified (used by Claude hooks)"""
         # This is called by Claude hooks - check if any indexed files were modified
         # For now, just clear the index to be safe
@@ -1123,7 +1124,7 @@ class TantivyAgent:
                 # No index info, remove directory
                 shutil.rmtree(data_dir)
 
-    def encoding_info_command(self):
+    def encoding_info_command(self) -> None:
         """Show encoding information for files that would be indexed"""
         print("🔍 Analyzing file encodings...")
 
@@ -1216,7 +1217,7 @@ class TantivyAgent:
         print(f"   Auto-detect: {self.config.get('encoding', {}).get('auto_detect', True)}")
         print(f"   Confidence threshold: {self.config.get('encoding', {}).get('detection_confidence_threshold', 0.7)}")
 
-    def setup_command(self):
+    def setup_command(self) -> None:
         """Setup command to install bash script to ~/bin"""
         import stat
 
@@ -1314,7 +1315,7 @@ fi
         except OSError as e:
             print(f"❌ Failed to create bash script: {e}")
 
-    def status_command(self):
+    def status_command(self) -> None:
         """Status command to display index information and statistics"""
         print("📊 Tantivy Agent Status\n")
 
