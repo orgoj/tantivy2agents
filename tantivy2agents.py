@@ -124,7 +124,7 @@ class TantivyAgent:
                 # Merge with defaults
                 config = {**default_config, **user_config}
                 return config
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
                 print(f"Error loading config: {e}")
                 print("Using default configuration.")
 
@@ -365,7 +365,7 @@ class TantivyAgent:
                         else:
                             # Skip binary files silently
                             pass
-                    except Exception:
+                    except OSError:
                         # If we can't read the file, skip it
                         pass
             else:
@@ -394,7 +394,7 @@ class TantivyAgent:
                                 else:
                                     # Skip binary files silently
                                     pass
-                            except Exception:
+                            except OSError:
                                 # If we can't read the file, skip it
                                 pass
 
@@ -498,7 +498,7 @@ class TantivyAgent:
                 elif confidence > 0.3:  # Lower confidence but still usable
                     # We'll try this encoding but have fallbacks ready
                     return detected_encoding
-            except Exception:
+            except (TypeError, AttributeError, LookupError):
                 pass  # Fall back to other methods
 
         # Fall back to configured encoding
@@ -534,10 +534,10 @@ class TantivyAgent:
             try:
                 content = content_bytes.decode('utf-8', errors='replace')
                 return content, 'utf-8-replace'
-            except Exception:
+            except (MemoryError, SystemError):
                 return None, "failed"
 
-        except Exception as e:
+        except OSError as e:
             return None, f"error: {str(e)}"
 
     def _parse_markdown(self, file_path):
@@ -558,7 +558,7 @@ class TantivyAgent:
             if encoding_info != 'utf-8':
                 print(f"📖 {os.path.relpath(file_path, self.project_root)}: detected encoding {encoding_info}")
 
-        except Exception as e:
+        except OSError as e:
             print(f"Error reading {file_path}: {e}")
             return None
 
@@ -571,7 +571,8 @@ class TantivyAgent:
             header, body = m.groups()
             try:
                 meta = yaml.safe_load(header) or {}
-            except:
+            except yaml.YAMLError:
+                # Invalid YAML frontmatter, skip it
                 pass
 
         # Auto-generate metadata for server files
@@ -643,7 +644,8 @@ class TantivyAgent:
                     return True
 
             return False
-        except:
+        except (OSError, json.JSONDecodeError, KeyError):
+            # If we can't read index info or it's corrupt, rebuild
             return True
 
     def index_command(self, force=False, show_dirs=False, show_files=False):
@@ -760,7 +762,7 @@ class TantivyAgent:
             else:
                 self._display_results(filtered_results[:limit])
 
-        except Exception as e:
+        except (OSError, ValueError, RuntimeError) as e:
             print(f"❌ Search error: {e}")
 
     def _display_results(self, results):
@@ -1184,7 +1186,7 @@ class TantivyAgent:
                 else:
                     problem_files.append(rel_path)
 
-            except Exception as e:
+            except (OSError, RuntimeError) as e:
                 problem_files.append(f"{rel_path} (error: {str(e)})")
 
         # Show summary
@@ -1309,7 +1311,7 @@ fi
             print("   tantivy2agents search \"your query\"")
             print("   tantivy2agents install")
 
-        except Exception as e:
+        except OSError as e:
             print(f"❌ Failed to create bash script: {e}")
 
     def status_command(self):
@@ -1350,7 +1352,7 @@ fi
                 print(f"   Files in index: {len(indexed_files):,}")
             else:
                 print("   ⚠️ Index metadata not found")
-        except Exception as e:
+        except (OSError, json.JSONDecodeError, KeyError) as e:
             print(f"   ⚠️ Error reading index metadata: {e}")
 
         # Calculate index size
@@ -1366,7 +1368,7 @@ fi
             index_size_mb = index_size / (1024 * 1024)
             print(f"   Index size: {index_size_mb:.1f} MB")
             print(f"   Index files: {index_files}")
-        except Exception as e:
+        except OSError as e:
             print(f"   ⚠️ Error calculating index size: {e}")
 
         # Tantivy index statistics
@@ -1378,9 +1380,10 @@ fi
             try:
                 total_docs = len(searcher)  # Try len(searcher) first
                 print(f"   Searchable docs: {total_docs:,}")
-            except:
+            except (TypeError, AttributeError):
+                # len() not supported on this searcher version
                 print("   Searchable docs: N/A")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             print(f"   ⚠️ Error opening index: {e}")
 
         print("\n📂 File Information")
@@ -1390,7 +1393,7 @@ fi
         try:
             files_to_index, _ = self._get_files_for_indexing()
             print(f"   Files to index: {len(files_to_index):,}")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             print(f"   ⚠️ Error getting files to index: {e}")
 
         # Check available vs missing files
@@ -1415,7 +1418,7 @@ fi
                         latest_mtime = max(mtimes)
                         latest_file = datetime.fromtimestamp(latest_mtime).strftime('%Y-%m-%d %H:%M:%S')
                         print(f"   Last modified: {latest_file}")
-                except Exception as e:
+                except (OSError, ValueError) as e:
                     print(f"   ⚠️ Error getting modification times: {e}")
 
         print("\n🔧 System")
@@ -1423,7 +1426,8 @@ fi
         # Tantivy version
         try:
             print(f"   Tantivy version: {tantivy.__version__}")
-        except:
+        except AttributeError:
+            # __version__ not available
             print("   Tantivy version: N/A")
 
         # Index status
@@ -1437,7 +1441,7 @@ fi
                     print("   Index status: ✅ Up to date")
             else:
                 print("   Index status: ⚠️ Unknown")
-        except Exception as e:
+        except (OSError, json.JSONDecodeError) as e:
             print(f"   Index status: ⚠️ Error checking: {e}")
 
         print()  # Empty line at end
