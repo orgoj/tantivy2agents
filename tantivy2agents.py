@@ -425,7 +425,6 @@ class TantivyAgent:
 
     def _match_pattern(self, path, pattern):
         """Simple glob pattern matching"""
-        import fnmatch
         return fnmatch.fnmatch(path, pattern)
 
     def _is_binary_file(self, file_path, content_bytes=None):
@@ -792,9 +791,6 @@ class TantivyAgent:
 
     def _export_json(self, results, query, output_file):
         """Export results as JSON"""
-        import json
-        from datetime import datetime
-
         export_data = {
             "query": query,
             "timestamp": datetime.now().isoformat(),
@@ -823,8 +819,6 @@ class TantivyAgent:
     def _export_csv(self, results, query, output_file):
         """Export results as CSV"""
         import csv
-        from datetime import datetime
-        import sys
 
         if output_file:
             file_handle = open(output_file, 'w', newline='', encoding='utf-8')
@@ -859,12 +853,9 @@ class TantivyAgent:
 
     def _export_txt(self, results, query, output_file):
         """Export results as plain text"""
-        from datetime import datetime
-
         if output_file:
             file_handle = open(output_file, 'w', encoding='utf-8')
         else:
-            import sys
             file_handle = sys.stdout
 
         try:
@@ -1370,10 +1361,6 @@ fi
 
     def status_command(self):
         """Status command to display index information and statistics"""
-        import os
-        import time
-        from datetime import datetime
-
         print("📊 Tantivy Agent Status\n")
 
         # Basic project information
