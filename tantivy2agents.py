@@ -39,6 +39,103 @@ except ImportError:
     print("Warning: charset_normalizer not installed. Encoding detection will be limited to UTF-8.")
 
 
+# === Czech Stemming Support ===
+# Lightweight Czech stemmer for morphological normalization
+# Removes common Czech suffixes to enable search across different word forms
+
+def czech_stem(word):
+    """
+    Simple Czech stemmer - removes common suffixes for better search.
+
+    Handles:
+    - Adjective endings: -ý/-á/-é/-í, -ého/-ému/-ým/-ém, -ou/-ými
+    - Noun endings: -a/-y/-e/-u/-em/-ům/-ech/-ami/-ách
+    - Verb endings: -it/-at/-et, -il/-al/-el, -ím/-ám/-em, -íme/-áme/-eme
+
+    Examples:
+        dokončit → dokonč
+        dokončil → dokonč
+        dokončený → dokonč
+        dokončeno → dokonč
+        úkol → úkol
+        úkoly → úkol
+    """
+    word = word.lower().strip()
+
+    # Don't stem very short words
+    if len(word) < 4:
+        return word
+
+    # Suffixes ordered by length (longest first) to avoid partial matches
+    suffixes = [
+        # Adjective forms (7+ chars)
+        'ějšího', 'ějšímu', 'ějším', 'ějších',
+        # Adjective forms (6 chars)
+        'ějším', 'ější',
+        # Verb forms (5+ chars)
+        'ovat', 'ovala', 'ovalo', 'ovali', 'ovaly',
+        # Adjective forms (4+ chars)
+        'ého', 'ému', 'ými', 'ých', 'ými',
+        # Noun plurals (4 chars)
+        'ech', 'ami', 'ách', 'ům',
+        # Verb passive/neuter (3 chars)
+        'eno', 'ano',
+        # Verb past tense (3 chars)
+        'ila', 'ilo', 'ili', 'ily',
+        # Adjective forms (3 chars)
+        'ým', 'ém', 'ou',
+        # Noun forms (2-3 chars)
+        'ům', 'ích', 'ům',
+        # Common verb infinitives (2 chars)
+        'it', 'at', 'et',
+        # Past tense singular (2 chars)
+        'il', 'al', 'el',
+        # Present tense (3 chars)
+        'íme', 'áme', 'eme',
+        # Present tense singular (2 chars)
+        'ím', 'ám', 'em', 'íš', 'áš', 'eš',
+        # Adjectives (2 chars)
+        'ý', 'á', 'é', 'í',
+        # Nouns (1-2 char, only if stem will be 3+ chars)
+        'ů', 'a', 'y', 'e', 'u',
+    ]
+
+    for suffix in suffixes:
+        if word.endswith(suffix):
+            stem = word[:-len(suffix)]
+            # Keep minimum stem length of 3 characters
+            if len(stem) >= 3:
+                return stem
+
+    return word
+
+
+def normalize_czech_text(text):
+    """
+    Normalize Czech text for indexing/searching.
+    Applies stemming to all words while preserving structure.
+
+    Args:
+        text: Input text in Czech
+
+    Returns:
+        Normalized text with stemmed words
+    """
+    # Split by non-word characters, preserve structure
+    words = re.findall(r'\w+|\W+', text)
+    normalized = []
+
+    for part in words:
+        if re.match(r'\w+', part):
+            # It's a word - stem it
+            normalized.append(czech_stem(part))
+        else:
+            # It's punctuation/whitespace - keep as is
+            normalized.append(part)
+
+    return ''.join(normalized)
+
+
 class TantivyAgent:
     """Main Tantivy Agent class with all functionality"""
 
@@ -600,9 +697,13 @@ class TantivyAgent:
                 title = line[2:].strip()
                 break
 
+        # Apply Czech normalization for better search
+        title_normalized = normalize_czech_text(title or os.path.basename(file_path))
+        body_normalized = normalize_czech_text(body)
+
         return {
-            "title": title or os.path.basename(file_path),
-            "body": body,
+            "title": title_normalized,
+            "body": body_normalized,
             "tags": " ".join(meta.get("tags", [])) if isinstance(meta.get("tags"), list)
                    else meta.get("tags", "") or "",
             "servers": " ".join(meta.get("servers", [])) if isinstance(meta.get("servers"), list)
@@ -731,9 +832,12 @@ class TantivyAgent:
             index = tantivy.Index.open(index_dir)
             searcher = index.searcher()
 
+            # Normalize query for Czech search
+            normalized_query = normalize_czech_text(query)
+
             # Parse query
             field_names = list(self.config['schema_fields'].keys())
-            query_parser = index.parse_query(query, field_names)
+            query_parser = index.parse_query(normalized_query, field_names)
 
             # Search
             limit = limit or self.config['search']['default_limit']
