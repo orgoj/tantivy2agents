@@ -945,7 +945,7 @@ class TantivyAgent:
             self._create_default_config(target_project_root)
 
         # Step 3: Install Claude hooks in target
-        self._install_claude_hooks_in_target(target_project_root)
+        self._install_claude_hooks(target_root=target_project_root)
 
         # Step 4: Setup .gitignore
         self._setup_gitignore(target_project_root)
@@ -1012,13 +1012,19 @@ class TantivyAgent:
             # Restore original project root
             self.project_root = original_root
 
-    def _install_claude_hooks_in_target(self, target_project_root):
-        """Install Claude hooks in target project"""
-        claude_dir = os.path.join(target_project_root, '.claude')
+    def _install_claude_hooks(self, target_root=None, use_absolute_path=False):
+        """Install Claude hooks in project
+
+        Args:
+            target_root: Target project root (None = use self.project_root)
+            use_absolute_path: Use absolute vs relative path (for future flexibility)
+        """
+        target_root = target_root or self.project_root
+        claude_dir = os.path.join(target_root, '.claude')
         os.makedirs(claude_dir, exist_ok=True)
 
         settings_path = os.path.join(claude_dir, 'settings.json')
-        tools_dir = os.path.join(target_project_root, 'tools')
+        tools_dir = os.path.join(target_root, 'tools')
         hook_command = os.path.join(tools_dir, 'tantivy2agents.py')
 
         # Load existing settings or create new
@@ -1094,59 +1100,6 @@ class TantivyAgent:
                 for entry in gitignore_entries:
                     f.write(entry + '\n')
             print("✅ Created .gitignore")
-
-    def _install_claude_hooks(self):
-        """Install Claude Code hooks"""
-        claude_dir = os.path.join(self.project_root, '.claude')
-        os.makedirs(claude_dir, exist_ok=True)
-
-        settings_path = os.path.join(claude_dir, 'settings.json')
-
-        # Find where this script is located
-        script_path = os.path.abspath(__file__)
-
-        # Load existing settings or create new
-        settings = {}
-        if os.path.exists(settings_path):
-            with open(settings_path, 'r', encoding='utf-8') as f:
-                settings = json.load(f)
-
-        # Add hooks configuration
-        if 'hooks' not in settings:
-            settings['hooks'] = {}
-        if 'PostToolUse' not in settings['hooks']:
-            settings['hooks']['PostToolUse'] = []
-
-        # Check if hook already exists
-        existing_hook = None
-        for hook in settings['hooks']['PostToolUse']:
-            if 'hooks' in hook:
-                for subhook in hook['hooks']:
-                    if 'command' in subhook and 'tantivy2agent' in subhook['command']:
-                        existing_hook = hook
-                        break
-
-        if existing_hook:
-            print("ℹ️  Claude hooks already installed")
-            return
-
-        # Add new hook
-        new_hook = {
-            "matcher": "Edit|Write|MultiEdit",
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": f"{script_path} hook-clear"
-                }
-            ]
-        }
-        settings['hooks']['PostToolUse'].append(new_hook)
-
-        # Write settings back
-        with open(settings_path, 'w', encoding='utf-8') as f:
-            json.dump(settings, f, indent=2)
-
-        print("✅ Claude hooks installed")
 
     def hook_clear_command(self):
         """Clear index when files are modified (used by Claude hooks)"""

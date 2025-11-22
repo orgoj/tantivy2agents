@@ -218,7 +218,7 @@ def test_install_workflow():
             results.append(("Gitignore content", has_tantivy_data and has_symlink_keep))
 
     # Test Claude hooks installation
-    agent._install_claude_hooks_in_target(target_project)
+    agent._install_claude_hooks(target_root=target_project)
     claude_config_path = os.path.join(target_project, ".claude", "settings.json")
     claude_hooks_exist = os.path.exists(claude_config_path)
     results.append(("Claude hooks installation", claude_hooks_exist))
