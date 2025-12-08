@@ -488,6 +488,124 @@ def test_status_command():
         assert "System" in output, "Missing system section"
 
 
+def test_hook_clear_command():
+    """Test hook-clear command"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create minimal config
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md"], "exclude": []},
+            "index_dirs": ["docs/"],
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "path": {"weight": 0.5, "tokenizer": "raw"},
+            },
+            "search": {"default_limit": 10},
+            "auto_hook": False,
+        }
+
+        config_path = os.path.join(temp_dir, ".tantivi2agents.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        # Create test document and index
+        docs_dir = os.path.join(temp_dir, "docs")
+        os.makedirs(docs_dir, exist_ok=True)
+        with open(os.path.join(docs_dir, "test.md"), "w") as f:
+            f.write("# Test\nContent")
+
+        # Create index first
+        result = run_cli_command(["index"], cwd=temp_dir)
+        assert result.returncode == 0, f"Index failed: {result.stderr}"
+
+        # Test hook-clear command (marks index as outdated)
+        result = run_cli_command(["hook-clear"], cwd=temp_dir)
+
+        # hook-clear should succeed
+        assert result.returncode == 0, f"hook-clear failed: {result.stderr}"
+
+        # Verify index was marked as outdated
+        index_info_path = os.path.join(temp_dir, ".tantivy-data", "index_info.json")
+        assert os.path.exists(index_info_path), "index_info.json should exist"
+        with open(index_info_path) as f:
+            index_info = json.load(f)
+        assert index_info.get("outdated") is True, "Index should be marked as outdated"
+
+
+def test_setup_command():
+    """Test setup command"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create minimal config
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md"], "exclude": []},
+            "index_dirs": ["."],
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "path": {"weight": 0.5, "tokenizer": "raw"},
+            },
+            "search": {"default_limit": 10},
+            "auto_hook": False,
+        }
+
+        config_path = os.path.join(temp_dir, ".tantivi2agents.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        # Test setup command
+        result = run_cli_command(["setup"], cwd=temp_dir)
+
+        # setup should succeed (shows help about uvx/uv)
+        assert result.returncode == 0, f"setup failed: {result.stderr}"
+
+        # Should contain info about uv/uvx
+        assert (
+            "uv" in result.stdout.lower() or "uvx" in result.stdout.lower()
+        ), f"Expected uv/uvx instructions, got: {result.stdout}"
+
+
+def test_cli_validation():
+    """Test CLI input validation"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create minimal config
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md"], "exclude": []},
+            "index_dirs": ["."],
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "path": {"weight": 0.5, "tokenizer": "raw"},
+            },
+            "search": {"default_limit": 10},
+            "auto_hook": False,
+        }
+
+        config_path = os.path.join(temp_dir, ".tantivi2agents.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        # Test empty search query
+        result = run_cli_command(["search"], cwd=temp_dir)
+        assert result.returncode != 0, "Empty search should fail"
+        assert (
+            "empty" in result.stderr.lower()
+        ), f"Expected 'empty' error, got: {result.stderr}"
+
+        # Test invalid limit (negative)
+        result = run_cli_command(["search", "test", "--limit", "-1"], cwd=temp_dir)
+        assert result.returncode != 0, "Negative limit should fail"
+
+        # Test invalid limit (too large)
+        result = run_cli_command(["search", "test", "--limit", "99999"], cwd=temp_dir)
+        assert result.returncode != 0, "Too large limit should fail"
+
+
 def main():
     """Run all tests"""
     print("Running Tantivy Agent Tests...")
@@ -504,6 +622,9 @@ def main():
         ("Default Configs", test_default_configs),
         ("Install Functionality", test_install_functionality),
         ("Status Command", test_status_command),
+        ("Hook Clear Command", test_hook_clear_command),
+        ("Setup Command", test_setup_command),
+        ("CLI Validation", test_cli_validation),
     ]
 
     passed = 0

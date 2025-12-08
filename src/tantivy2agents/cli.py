@@ -67,11 +67,29 @@ Examples:
     parser.add_argument(
         "--files", action="store_true", help="Show files that will be processed"
     )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Enable debug output"
+    )
+    parser.add_argument(
+        "--quiet", "-q", action="store_true", help="Suppress informational output"
+    )
 
     args = parser.parse_args()
 
+    # Input validation
+    if args.command == "search":
+        query = " ".join(args.query) if args.query else ""
+        if not query.strip():
+            parser.error("Search query cannot be empty")
+        if args.limit is not None and (args.limit < 1 or args.limit > 10000):
+            parser.error("Limit must be between 1 and 10000")
+
     # Initialize agent
-    agent = TantivyAgent(args.config)
+    agent = TantivyAgent(
+        config_path=args.config,
+        verbose=args.verbose,
+        quiet=args.quiet,
+    )
 
     # Execute command
     if args.command == "index":

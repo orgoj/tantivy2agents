@@ -6,6 +6,7 @@ import csv
 import fnmatch
 import glob
 import json
+import logging
 import os
 import shutil
 import sys
@@ -16,24 +17,62 @@ from typing import Optional
 import tantivy
 import yaml
 
+from .czech_stemmer import normalize_czech_text
+
+# Module logger
+logger = logging.getLogger(__name__)
+
+# Optional dependency for advanced encoding detection
 try:
     from charset_normalizer import detect
 except ImportError:
     detect = None
 
-from .czech_stemmer import normalize_czech_text
-
 
 class TantivyAgent:
     """Main Tantivy Agent class with all functionality"""
 
-    def __init__(self, config_path: Optional[str] = None) -> None:
-        """Initialize agent with configuration"""
+    # Constants for encoding detection
+    DEFAULT_ENCODING_CONFIDENCE_THRESHOLD = 0.7
+    MIN_TEXT_CHAR_RATIO = 0.7
+    PRINTABLE_ASCII_RANGE = (32, 126)  # Space to tilde
+    WHITESPACE_CHARS = (9, 10, 13)  # Tab, LF, CR
+
+    def __init__(
+        self,
+        config_path: Optional[str] = None,
+        verbose: bool = False,
+        quiet: bool = False,
+    ) -> None:
+        """Initialize agent with configuration.
+
+        Args:
+            config_path: Path to configuration file
+            verbose: Enable debug output
+            quiet: Suppress informational output
+        """
+        self.verbose = verbose
+        self.quiet = quiet
+        self._setup_logging()
         self.project_root = self._find_project_root()
         self.config_path = config_path or os.path.join(
             self.project_root, ".tantivi2agents.json"
         )
         self.config = self._load_config()
+
+    def _setup_logging(self) -> None:
+        """Configure logging based on verbosity settings."""
+        if self.verbose:
+            level = logging.DEBUG
+        elif self.quiet:
+            level = logging.WARNING
+        else:
+            level = logging.INFO
+
+        logging.basicConfig(
+            level=level,
+            format="%(levelname)s: %(message)s",
+        )
 
     def _find_project_root(self):
         """Find project root by looking for .git directory"""
@@ -130,7 +169,7 @@ class TantivyAgent:
                     "*.so",
                     "*.dylib",
                 ],
-                "detection_confidence_threshold": 0.7,
+                "detection_confidence_threshold": self.DEFAULT_ENCODING_CONFIDENCE_THRESHOLD,
             },
             "auto_hook": True,
         }
@@ -143,8 +182,8 @@ class TantivyAgent:
                 config = {**default_config, **user_config}
                 return config
             except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
-                print(f"Error loading config: {e}")
-                print("Using default configuration.")
+                logger.warning("Error loading config: %s", e)
+                logger.warning("Using default configuration.")
 
         return default_config
 
@@ -516,10 +555,18 @@ class TantivyAgent:
                 return False
             except UnicodeDecodeError:
                 # If it can't be decoded as UTF-8 and has many non-text bytes, likely binary
+                min_ascii, max_ascii = self.PRINTABLE_ASCII_RANGE
                 text_chars = len(
-                    [b for b in content_bytes if 32 <= b <= 126 or b in [9, 10, 13]]
+                    [
+                        b
+                        for b in content_bytes
+                        if min_ascii <= b <= max_ascii or b in self.WHITESPACE_CHARS
+                    ]
                 )
-                if len(content_bytes) > 0 and text_chars / len(content_bytes) < 0.7:
+                if (
+                    len(content_bytes) > 0
+                    and text_chars / len(content_bytes) < self.MIN_TEXT_CHAR_RATIO
+                ):
                     return True
 
         return False
@@ -559,7 +606,10 @@ class TantivyAgent:
                 confidence = result.get("confidence", 0)
                 detected_encoding = result.get("encoding", "utf-8")
 
-                threshold = encoding_config.get("detection_confidence_threshold", 0.7)
+                threshold = encoding_config.get(
+                    "detection_confidence_threshold",
+                    self.DEFAULT_ENCODING_CONFIDENCE_THRESHOLD,
+                )
                 if confidence >= threshold:
                     return detected_encoding
                 elif confidence > 0.3:  # Lower confidence but still usable
@@ -622,17 +672,19 @@ class TantivyAgent:
                     return None
                 else:
                     # Report reading errors
-                    print(f"Error reading {file_path}: {encoding_info}")
+                    logger.warning("Error reading %s: %s", file_path, encoding_info)
                     return None
 
             # Log encoding detection for debugging (only if not UTF-8)
             if encoding_info != "utf-8":
-                print(
-                    f"  {os.path.relpath(file_path, self.project_root)}: detected encoding {encoding_info}"
+                logger.debug(
+                    "%s: detected encoding %s",
+                    os.path.relpath(file_path, self.project_root),
+                    encoding_info,
                 )
 
         except OSError as e:
-            print(f"Error reading {file_path}: {e}")
+            logger.warning("Error reading %s: %s", file_path, e)
             return None
 
         meta = {}
@@ -774,10 +826,14 @@ class TantivyAgent:
         print(f"Indexing {len(docs)} documents...")
         writer = index.writer()
 
-        for doc_data in docs:
-            writer.add_document(tantivy.Document(**doc_data))
+        try:
+            for doc_data in docs:
+                writer.add_document(tantivy.Document(**doc_data))
 
-        writer.commit()
+            writer.commit()
+        except Exception as e:
+            logger.error("Failed to write index: %s", e)
+            raise RuntimeError(f"Index write failed: {e}") from e
 
         # Save index info
         index_info = {"timestamp": time.time(), "files": files, "count": len(docs)}
@@ -851,7 +907,7 @@ class TantivyAgent:
                 self._display_results(filtered_results[:limit])
 
         except (OSError, ValueError, RuntimeError) as e:
-            print(f"Search error: {e}")
+            logger.error("Search error: %s", e)
 
     def _display_results(self, results):
         """Display results in standard format"""

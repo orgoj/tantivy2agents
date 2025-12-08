@@ -33,6 +33,7 @@ def main():
     test_suites = [
         ("tests/test_basic.py", "Basic Functionality"),
         ("tests/test_install.py", "Install Functionality"),
+        ("tests/test_encoding.py", "Encoding Detection"),
     ]
 
     all_passed = True
