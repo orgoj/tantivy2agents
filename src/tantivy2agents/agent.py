@@ -1,139 +1,27 @@
-#!/usr/bin/env python3
 """
-Universal Tantivy Agent - All-in-one document indexing and search solution
-
-This script provides complete functionality for document indexing and search
-using Tantivy with flexible JSON configuration.
-
-Usage:
-    python tantivy2agents.py <command> [options]
-
-Commands:
-    index        - Create or update document index
-    search       - Search in indexed documents
-    clear        - Clear the index
-    install      - Install Claude hooks and setup
-    hook-clear   - Clear index (used by Claude hooks)
-    encoding-info - Analyze file encodings in project
+Tantivy Agent - Main agent class for document indexing and search.
 """
 
-import os
-import sys
+import csv
+import fnmatch
+import glob
 import json
-import yaml
-import re
+import os
 import shutil
-import argparse
-import subprocess
+import sys
 import time
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
-import glob
-import fnmatch
+
 import tantivy
+import yaml
+
 try:
     from charset_normalizer import detect
 except ImportError:
     detect = None
-    print("Warning: charset_normalizer not installed. Encoding detection will be limited to UTF-8.")
 
-
-# === Czech Stemming Support ===
-# Lightweight Czech stemmer for morphological normalization
-# Removes common Czech suffixes to enable search across different word forms
-
-def czech_stem(word):
-    """
-    Simple Czech stemmer - removes common suffixes for better search.
-
-    Handles:
-    - Adjective endings: -ý/-á/-é/-í, -ého/-ému/-ým/-ém, -ou/-ými
-    - Noun endings: -a/-y/-e/-u/-em/-ům/-ech/-ami/-ách
-    - Verb endings: -it/-at/-et, -il/-al/-el, -ím/-ám/-em, -íme/-áme/-eme
-
-    Examples:
-        dokončit → dokonč
-        dokončil → dokonč
-        dokončený → dokonč
-        dokončeno → dokonč
-        úkol → úkol
-        úkoly → úkol
-    """
-    word = word.lower().strip()
-
-    # Don't stem very short words
-    if len(word) < 4:
-        return word
-
-    # Suffixes ordered by length (longest first) to avoid partial matches
-    suffixes = [
-        # Adjective forms (7+ chars)
-        'ějšího', 'ějšímu', 'ějším', 'ějších',
-        # Adjective forms (6 chars)
-        'ějším', 'ější',
-        # Verb forms (5+ chars)
-        'ovat', 'ovala', 'ovalo', 'ovali', 'ovaly',
-        # Adjective forms (4+ chars)
-        'ého', 'ému', 'ými', 'ých', 'ými',
-        # Noun plurals (4 chars)
-        'ech', 'ami', 'ách', 'ům',
-        # Verb passive/neuter (3 chars)
-        'eno', 'ano',
-        # Verb past tense (3 chars)
-        'ila', 'ilo', 'ili', 'ily',
-        # Adjective forms (3 chars)
-        'ým', 'ém', 'ou',
-        # Noun forms (2-3 chars)
-        'ům', 'ích', 'ům',
-        # Common verb infinitives (2 chars)
-        'it', 'at', 'et',
-        # Past tense singular (2 chars)
-        'il', 'al', 'el',
-        # Present tense (3 chars)
-        'íme', 'áme', 'eme',
-        # Present tense singular (2 chars)
-        'ím', 'ám', 'em', 'íš', 'áš', 'eš',
-        # Adjectives (2 chars)
-        'ý', 'á', 'é', 'í',
-        # Nouns (1-2 char, only if stem will be 3+ chars)
-        'ů', 'a', 'y', 'e', 'u',
-    ]
-
-    for suffix in suffixes:
-        if word.endswith(suffix):
-            stem = word[:-len(suffix)]
-            # Keep minimum stem length of 3 characters
-            if len(stem) >= 3:
-                return stem
-
-    return word
-
-
-def normalize_czech_text(text):
-    """
-    Normalize Czech text for indexing/searching.
-    Applies stemming to all words while preserving structure.
-
-    Args:
-        text: Input text in Czech
-
-    Returns:
-        Normalized text with stemmed words
-    """
-    # Split by non-word characters, preserve structure
-    words = re.findall(r'\w+|\W+', text)
-    normalized = []
-
-    for part in words:
-        if re.match(r'\w+', part):
-            # It's a word - stem it
-            normalized.append(czech_stem(part))
-        else:
-            # It's punctuation/whitespace - keep as is
-            normalized.append(part)
-
-    return ''.join(normalized)
+from .czech_stemmer import normalize_czech_text
 
 
 class TantivyAgent:
@@ -142,14 +30,16 @@ class TantivyAgent:
     def __init__(self, config_path: Optional[str] = None) -> None:
         """Initialize agent with configuration"""
         self.project_root = self._find_project_root()
-        self.config_path = config_path or os.path.join(self.project_root, '.tantivi2agents.json')
+        self.config_path = config_path or os.path.join(
+            self.project_root, ".tantivi2agents.json"
+        )
         self.config = self._load_config()
 
     def _find_project_root(self):
         """Find project root by looking for .git directory"""
         current = os.getcwd()
-        while current != '/':
-            if os.path.exists(os.path.join(current, '.git')):
+        while current != "/":
+            if os.path.exists(os.path.join(current, ".git")):
                 return current
             current = os.path.dirname(current)
         return os.getcwd()
@@ -161,63 +51,93 @@ class TantivyAgent:
             "index_dir": ".tantivy-data",
             "global_patterns": {
                 "include": ["*.*"],
-                "exclude": ["*.tmp", "*~", "*.bak", "*.log", "*.swp", "*.swo", ".DS_Store", "Thumbs.db", "*.exe", "*.dll", "*.so", "*.dylib", "*.jpg", "*.jpeg", "*.png", "*.gif", "*.bmp", "*.svg", "*.pdf", "*.zip", "*.tar", "*.gz", "*.rar", "*.7z", "*.mp3", "*.mp4", "*.avi", "*.mov", "*.wav", "*.flac", "*.ogg"]
+                "exclude": [
+                    "*.tmp",
+                    "*~",
+                    "*.bak",
+                    "*.log",
+                    "*.swp",
+                    "*.swo",
+                    ".DS_Store",
+                    "Thumbs.db",
+                    "*.exe",
+                    "*.dll",
+                    "*.so",
+                    "*.dylib",
+                    "*.jpg",
+                    "*.jpeg",
+                    "*.png",
+                    "*.gif",
+                    "*.bmp",
+                    "*.svg",
+                    "*.pdf",
+                    "*.zip",
+                    "*.tar",
+                    "*.gz",
+                    "*.rar",
+                    "*.7z",
+                    "*.mp3",
+                    "*.mp4",
+                    "*.avi",
+                    "*.mov",
+                    "*.wav",
+                    "*.flac",
+                    "*.ogg",
+                ],
             },
             "index_dirs": [
                 ".",
-                {
-                    "path": ".git",
-                    "exclude": True
-                },
-                {
-                    "path": "node_modules",
-                    "exclude": True
-                },
-                {
-                    "path": ".venv",
-                    "exclude": True
-                },
-                {
-                    "path": "target",
-                    "exclude": True
-                },
-                {
-                    "path": "dist",
-                    "exclude": True
-                },
-                {
-                    "path": "build",
-                    "exclude": True
-                }
+                {"path": ".git", "exclude": True},
+                {"path": "node_modules", "exclude": True},
+                {"path": ".venv", "exclude": True},
+                {"path": "target", "exclude": True},
+                {"path": "dist", "exclude": True},
+                {"path": "build", "exclude": True},
             ],
             "schema_fields": {
                 "title": {"weight": 2.0, "tokenizer": "en_stem"},
                 "body": {"weight": 1.0, "tokenizer": "en_stem"},
                 "tags": {"weight": 1.5, "tokenizer": "default"},
                 "servers": {"weight": 1.5, "tokenizer": "default"},
-                "path": {"weight": 0.5, "tokenizer": "raw"}
+                "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {
-                "default_limit": 10,
-                "hide_incidents": True
-            },
+            "search": {"default_limit": 10, "hide_incidents": True},
             "encoding": {
                 "default_encoding": "utf-8",
                 "auto_detect": True,
-                "fallback_encodings": ["utf-8", "cp1252", "iso-8859-1", "cp1250", "cp1251"],
-                "file_specific_encodings": {
-                    "*.txt": "utf-8",
-                    "*.md": "utf-8"
-                },
-                "binary_extensions": ["*.jpg", "*.jpeg", "*.png", "*.gif", "*.bmp", "*.svg", "*.pdf", "*.zip", "*.tar", "*.gz", "*.rar", "*.exe", "*.dll", "*.so", "*.dylib"],
-                "detection_confidence_threshold": 0.7
+                "fallback_encodings": [
+                    "utf-8",
+                    "cp1252",
+                    "iso-8859-1",
+                    "cp1250",
+                    "cp1251",
+                ],
+                "file_specific_encodings": {"*.txt": "utf-8", "*.md": "utf-8"},
+                "binary_extensions": [
+                    "*.jpg",
+                    "*.jpeg",
+                    "*.png",
+                    "*.gif",
+                    "*.bmp",
+                    "*.svg",
+                    "*.pdf",
+                    "*.zip",
+                    "*.tar",
+                    "*.gz",
+                    "*.rar",
+                    "*.exe",
+                    "*.dll",
+                    "*.so",
+                    "*.dylib",
+                ],
+                "detection_confidence_threshold": 0.7,
             },
-            "auto_hook": True
+            "auto_hook": True,
         }
 
         if os.path.exists(self.config_path):
             try:
-                with open(self.config_path, 'r', encoding='utf-8') as f:
+                with open(self.config_path, "r", encoding="utf-8") as f:
                     user_config = json.load(f)
                 # Merge with defaults
                 config = {**default_config, **user_config}
@@ -230,22 +150,22 @@ class TantivyAgent:
 
     def _ensure_data_dir(self):
         """Ensure data directory exists and is in .gitignore"""
-        data_dir = os.path.join(self.project_root, self.config['index_dir'])
+        data_dir = os.path.join(self.project_root, self.config["index_dir"])
         os.makedirs(data_dir, exist_ok=True)
 
         # Add to .gitignore if not present
-        gitignore_path = os.path.join(self.project_root, '.gitignore')
+        gitignore_path = os.path.join(self.project_root, ".gitignore")
         gitignore_entry = f"{self.config['index_dir']}/"
 
         if os.path.exists(gitignore_path):
-            with open(gitignore_path, 'r', encoding='utf-8') as f:
+            with open(gitignore_path, "r", encoding="utf-8") as f:
                 gitignore_content = f.read()
 
             if gitignore_entry not in gitignore_content.splitlines():
-                with open(gitignore_path, 'a', encoding='utf-8') as f:
+                with open(gitignore_path, "a", encoding="utf-8") as f:
                     f.write(f"\n# Tantivy Agent data\n{gitignore_entry}\n")
         else:
-            with open(gitignore_path, 'w', encoding='utf-8') as f:
+            with open(gitignore_path, "w", encoding="utf-8") as f:
                 f.write(f"# Tantivy Agent data\n{gitignore_entry}\n")
 
         return data_dir
@@ -253,14 +173,43 @@ class TantivyAgent:
     def _detect_project_type(self):
         """Detect project type based on common indicators"""
         indicators = {
-            'python': ['setup.py', 'pyproject.toml', 'requirements.txt', 'Pipfile', 'pyvenv.cfg', '.venv/', 'src/'],
-            'nodejs': ['package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'node_modules/', 'npm-debug.log*'],
-            'java': ['pom.xml', 'build.gradle', 'gradlew', 'src/main/java/', 'target/', '.mvn/'],
-            'rust': ['Cargo.toml', 'Cargo.lock', 'src/main.rs', 'target/'],
-            'go': ['go.mod', 'go.sum', 'main.go', 'vendor/'],
-            'php': ['composer.json', 'composer.lock', 'artisan', 'vendor/'],
-            'ruby': ['Gemfile', 'Gemfile.lock', 'Rakefile', 'Gemfile.lock'],
-            'web': ['index.html', 'package.json', 'webpack.config.js', 'vite.config.js', 'dist/', 'build/']
+            "python": [
+                "setup.py",
+                "pyproject.toml",
+                "requirements.txt",
+                "Pipfile",
+                "pyvenv.cfg",
+                ".venv/",
+                "src/",
+            ],
+            "nodejs": [
+                "package.json",
+                "package-lock.json",
+                "yarn.lock",
+                "pnpm-lock.yaml",
+                "node_modules/",
+                "npm-debug.log*",
+            ],
+            "java": [
+                "pom.xml",
+                "build.gradle",
+                "gradlew",
+                "src/main/java/",
+                "target/",
+                ".mvn/",
+            ],
+            "rust": ["Cargo.toml", "Cargo.lock", "src/main.rs", "target/"],
+            "go": ["go.mod", "go.sum", "main.go", "vendor/"],
+            "php": ["composer.json", "composer.lock", "artisan", "vendor/"],
+            "ruby": ["Gemfile", "Gemfile.lock", "Rakefile", "Gemfile.lock"],
+            "web": [
+                "index.html",
+                "package.json",
+                "webpack.config.js",
+                "vite.config.js",
+                "dist/",
+                "build/",
+            ],
         }
 
         project_type_scores = {}
@@ -268,11 +217,11 @@ class TantivyAgent:
         for proj_type, files in indicators.items():
             score = 0
             for file_pattern in files:
-                if file_pattern.endswith('/'):
+                if file_pattern.endswith("/"):
                     # Directory check
                     if os.path.exists(os.path.join(self.project_root, file_pattern)):
                         score += 2
-                elif '*' in file_pattern or '?' in file_pattern:
+                elif "*" in file_pattern or "?" in file_pattern:
                     # Glob pattern
                     if glob.glob(os.path.join(self.project_root, file_pattern)):
                         score += 1
@@ -288,7 +237,7 @@ class TantivyAgent:
             if project_type_scores[detected_type] > 0:
                 return detected_type
 
-        return 'generic'
+        return "generic"
 
     def _get_default_config_for_project_type(self, project_type):
         """Get default configuration based on project type"""
@@ -297,21 +246,21 @@ class TantivyAgent:
             "index_dir": ".tantivy-data",
             "global_patterns": {
                 "include": ["*.md", "*.txt", "*.rst"],
-                "exclude": ["*.tmp", "*~", "*.bak", "*.log"]
+                "exclude": ["*.tmp", "*~", "*.bak", "*.log"],
             },
             "schema_fields": {
                 "title": {"weight": 2.0, "tokenizer": "en_stem"},
                 "body": {"weight": 1.0, "tokenizer": "en_stem"},
                 "tags": {"weight": 1.5, "tokenizer": "default"},
                 "servers": {"weight": 1.5, "tokenizer": "default"},
-                "path": {"weight": 0.5, "tokenizer": "raw"}
+                "path": {"weight": 0.5, "tokenizer": "raw"},
             },
             "search": {"default_limit": 10, "hide_incidents": True},
-            "auto_hook": True
+            "auto_hook": True,
         }
 
         project_configs = {
-            'python': {
+            "python": {
                 "index_dirs": [
                     "docs/**",
                     "src/**/*.md",
@@ -319,10 +268,10 @@ class TantivyAgent:
                     "*.md",
                     {"path": ".venv", "exclude": True},
                     {"path": "__pycache__", "exclude": True},
-                    {"path": "**/.*", "exclude": True}
+                    {"path": "**/.*", "exclude": True},
                 ]
             },
-            'nodejs': {
+            "nodejs": {
                 "index_dirs": [
                     "docs/**",
                     "src/**/*.md",
@@ -330,29 +279,29 @@ class TantivyAgent:
                     {"path": "node_modules", "exclude": True},
                     {"path": "dist", "exclude": True},
                     {"path": "build", "exclude": True},
-                    {"path": "**/.*", "exclude": True}
+                    {"path": "**/.*", "exclude": True},
                 ]
             },
-            'java': {
+            "java": {
                 "index_dirs": [
                     "docs/**",
                     "src/**/*.md",
                     "*.md",
                     {"path": "target", "exclude": True},
                     {"path": ".idea", "exclude": True},
-                    {"path": "**/.*", "exclude": True}
+                    {"path": "**/.*", "exclude": True},
                 ]
             },
-            'rust': {
+            "rust": {
                 "index_dirs": [
                     "docs/**",
                     "src/**/*.md",
                     "*.md",
                     {"path": "target", "exclude": True},
-                    {"path": "**/.*", "exclude": True}
+                    {"path": "**/.*", "exclude": True},
                 ]
             },
-            'generic': {
+            "generic": {
                 "index_dirs": [
                     "docs/**",
                     "*.md",
@@ -362,9 +311,9 @@ class TantivyAgent:
                     {"path": "node_modules", "exclude": True},
                     {"path": "target", "exclude": True},
                     {"path": "dist", "exclude": True},
-                    {"path": "build", "exclude": True}
+                    {"path": "build", "exclude": True},
                 ]
-            }
+            },
         }
 
         # Merge base config with project-specific config
@@ -372,7 +321,7 @@ class TantivyAgent:
         if project_type in project_configs:
             config.update(project_configs[project_type])
         else:
-            config.update(project_configs['generic'])
+            config.update(project_configs["generic"])
 
         return config
 
@@ -383,9 +332,11 @@ class TantivyAgent:
         for item in pattern_list:
             if isinstance(item, str):
                 # Simple pattern - expand it
-                if '**' in item:
+                if "**" in item:
                     # Recursive glob
-                    matches = glob.glob(os.path.join(self.project_root, item), recursive=True)
+                    matches = glob.glob(
+                        os.path.join(self.project_root, item), recursive=True
+                    )
                 else:
                     # Regular glob
                     matches = glob.glob(os.path.join(self.project_root, item))
@@ -394,26 +345,35 @@ class TantivyAgent:
                 for match in matches:
                     if os.path.exists(match):
                         rel_path = os.path.relpath(match, self.project_root)
-                        expanded_paths.append({"path": rel_path, "type": "dir" if os.path.isdir(match) else "file"})
+                        expanded_paths.append(
+                            {
+                                "path": rel_path,
+                                "type": "dir" if os.path.isdir(match) else "file",
+                            }
+                        )
 
             elif isinstance(item, dict):
                 # Directory with exclude/include rules
-                path_pattern = item.get('path', '')
-                exclude = item.get('exclude', False)
+                path_pattern = item.get("path", "")
+                exclude = item.get("exclude", False)
 
-                if '**' in path_pattern:
-                    matches = glob.glob(os.path.join(self.project_root, path_pattern), recursive=True)
+                if "**" in path_pattern:
+                    matches = glob.glob(
+                        os.path.join(self.project_root, path_pattern), recursive=True
+                    )
                 else:
                     matches = glob.glob(os.path.join(self.project_root, path_pattern))
 
                 for match in matches:
                     if os.path.exists(match):
                         rel_path = os.path.relpath(match, self.project_root)
-                        expanded_paths.append({
-                            "path": rel_path,
-                            "exclude": exclude,
-                            "type": "dir" if os.path.isdir(match) else "file"
-                        })
+                        expanded_paths.append(
+                            {
+                                "path": rel_path,
+                                "exclude": exclude,
+                                "type": "dir" if os.path.isdir(match) else "file",
+                            }
+                        )
 
         return expanded_paths
 
@@ -423,16 +383,16 @@ class TantivyAgent:
         dirs_processed = []
 
         # First expand glob patterns in index_dirs
-        expanded_dirs = self._expand_glob_patterns(self.config['index_dirs'])
+        expanded_dirs = self._expand_glob_patterns(self.config["index_dirs"])
 
         for dir_config in expanded_dirs:
             # Skip if this is marked as excluded
-            if dir_config.get('exclude', False):
+            if dir_config.get("exclude", False):
                 continue
 
-            dir_path = dir_config['path']
-            include_patterns = self.config['global_patterns']['include']
-            exclude_patterns = self.config['global_patterns']['exclude']
+            dir_path = dir_config["path"]
+            include_patterns = self.config["global_patterns"]["include"]
+            exclude_patterns = self.config["global_patterns"]["exclude"]
 
             full_dir_path = os.path.join(self.project_root, dir_path)
             if not os.path.exists(full_dir_path):
@@ -442,27 +402,30 @@ class TantivyAgent:
             if show_dirs:
                 dirs_processed.append(full_dir_path)
 
-            if dir_config.get('type') == 'file':
+            if dir_config.get("type") == "file":
                 # Single file
                 rel_path = os.path.relpath(full_dir_path, self.project_root)
 
                 # Check if file matches include patterns
-                included = any(self._match_pattern(rel_path, pattern) for pattern in include_patterns)
-                excluded = any(self._match_pattern(rel_path, pattern) for pattern in exclude_patterns)
+                included = any(
+                    self._match_pattern(rel_path, pattern)
+                    for pattern in include_patterns
+                )
+                excluded = any(
+                    self._match_pattern(rel_path, pattern)
+                    for pattern in exclude_patterns
+                )
 
                 if included and not excluded:
                     # Check if file is binary before adding
                     try:
-                        with open(full_dir_path, 'rb') as f:
+                        with open(full_dir_path, "rb") as f:
                             content_bytes = f.read()
                         if not self._is_binary_file(full_dir_path, content_bytes):
                             files.append(full_dir_path)
                             # Show files if requested
                             if show_files:
-                                print(f"📄 {rel_path}")
-                        else:
-                            # Skip binary files silently
-                            pass
+                                print(f"  {rel_path}")
                     except OSError:
                         # If we can't read the file, skip it
                         pass
@@ -474,24 +437,27 @@ class TantivyAgent:
                         rel_path = os.path.relpath(file_path, self.project_root)
 
                         # Check include patterns
-                        included = any(self._match_pattern(rel_path, pattern) for pattern in include_patterns)
+                        included = any(
+                            self._match_pattern(rel_path, pattern)
+                            for pattern in include_patterns
+                        )
 
                         # Check exclude patterns
-                        excluded = any(self._match_pattern(rel_path, pattern) for pattern in exclude_patterns)
+                        excluded = any(
+                            self._match_pattern(rel_path, pattern)
+                            for pattern in exclude_patterns
+                        )
 
                         if included and not excluded:
                             # Check if file is binary before adding
                             try:
-                                with open(file_path, 'rb') as f:
+                                with open(file_path, "rb") as f:
                                     content_bytes = f.read()
                                 if not self._is_binary_file(file_path, content_bytes):
                                     files.append(file_path)
                                     # Show files if requested
                                     if show_files:
-                                        print(f"📄 {rel_path}")
-                                else:
-                                    # Skip binary files silently
-                                    pass
+                                        print(f"  {rel_path}")
                             except OSError:
                                 # If we can't read the file, skip it
                                 pass
@@ -514,10 +480,10 @@ class TantivyAgent:
 
         # Show directories if requested
         if show_dirs:
-            print("📂 Directories to be processed:")
+            print("Directories to be processed:")
             for dir_path in unique_dirs:
                 rel_dir = os.path.relpath(dir_path, self.project_root)
-                print(f"📁 {rel_dir}")
+                print(f"  {rel_dir}")
 
         return unique_files, unique_dirs
 
@@ -527,10 +493,10 @@ class TantivyAgent:
 
     def _is_binary_file(self, file_path, content_bytes=None):
         """Check if file is binary based on extension and content"""
-        encoding_config = self.config.get('encoding', {})
+        encoding_config = self.config.get("encoding", {})
 
         # Check file extension
-        binary_extensions = encoding_config.get('binary_extensions', [])
+        binary_extensions = encoding_config.get("binary_extensions", [])
         filename = os.path.basename(file_path)
 
         for ext in binary_extensions:
@@ -540,17 +506,19 @@ class TantivyAgent:
         # If content is provided, do binary content detection
         if content_bytes:
             # Check for null bytes (common in binary files)
-            if b'\x00' in content_bytes:
+            if b"\x00" in content_bytes:
                 return True
 
             # Check for high ratio of non-printable characters
             try:
                 # Try to decode as UTF-8 to see if it contains mostly text
-                content_bytes.decode('utf-8')
+                content_bytes.decode("utf-8")
                 return False
             except UnicodeDecodeError:
                 # If it can't be decoded as UTF-8 and has many non-text bytes, likely binary
-                text_chars = len([b for b in content_bytes if 32 <= b <= 126 or b in [9, 10, 13]])
+                text_chars = len(
+                    [b for b in content_bytes if 32 <= b <= 126 or b in [9, 10, 13]]
+                )
                 if len(content_bytes) > 0 and text_chars / len(content_bytes) < 0.7:
                     return True
 
@@ -558,39 +526,40 @@ class TantivyAgent:
 
     def _get_encoding_for_file(self, file_path):
         """Get configured encoding for a specific file based on patterns"""
-        encoding_config = self.config.get('encoding', {})
-        file_specific = encoding_config.get('file_specific_encodings', {})
+        encoding_config = self.config.get("encoding", {})
+        file_specific = encoding_config.get("file_specific_encodings", {})
         filename = os.path.basename(file_path)
         rel_path = os.path.relpath(file_path, self.project_root)
 
         # Check file-specific patterns (try both relative path and filename)
         # Sort patterns by length (longer/more specific patterns first)
-        sorted_patterns = sorted(file_specific.items(), key=lambda x: len(x[0]), reverse=True)
+        sorted_patterns = sorted(
+            file_specific.items(), key=lambda x: len(x[0]), reverse=True
+        )
         for pattern, encoding in sorted_patterns:
-            if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(filename.lower(), pattern.lower()):
+            if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(
+                filename.lower(), pattern.lower()
+            ):
                 return encoding
 
-        # Check directory-specific patterns (if implemented in future)
-        # This could be extended to support directory-based encoding rules
-
-        return encoding_config.get('default_encoding', 'utf-8')
+        return encoding_config.get("default_encoding", "utf-8")
 
     def _detect_encoding(self, file_path, content_bytes):
         """Detect encoding of file content using multiple strategies"""
-        encoding_config = self.config.get('encoding', {})
+        encoding_config = self.config.get("encoding", {})
 
         # If auto-detection is disabled, use configured encoding
-        if not encoding_config.get('auto_detect', True):
+        if not encoding_config.get("auto_detect", True):
             return self._get_encoding_for_file(file_path)
 
         # First try charset_normalizer if available
         if detect:
             try:
                 result = detect(content_bytes)
-                confidence = result.get('confidence', 0)
-                detected_encoding = result.get('encoding', 'utf-8')
+                confidence = result.get("confidence", 0)
+                detected_encoding = result.get("encoding", "utf-8")
 
-                threshold = encoding_config.get('detection_confidence_threshold', 0.7)
+                threshold = encoding_config.get("detection_confidence_threshold", 0.7)
                 if confidence >= threshold:
                     return detected_encoding
                 elif confidence > 0.3:  # Lower confidence but still usable
@@ -606,7 +575,7 @@ class TantivyAgent:
         """Read file with automatic encoding detection and conversion to UTF-8"""
         try:
             # First read as bytes
-            with open(file_path, 'rb') as f:
+            with open(file_path, "rb") as f:
                 content_bytes = f.read()
 
             # Check if it's a binary file
@@ -615,11 +584,13 @@ class TantivyAgent:
 
             # Detect encoding
             detected_encoding = self._detect_encoding(file_path, content_bytes)
-            encoding_config = self.config.get('encoding', {})
-            fallback_encodings = encoding_config.get('fallback_encodings', ['utf-8'])
+            encoding_config = self.config.get("encoding", {})
+            fallback_encodings = encoding_config.get("fallback_encodings", ["utf-8"])
 
             # Try detected encoding first
-            encodings_to_try = [detected_encoding] + [enc for enc in fallback_encodings if enc != detected_encoding]
+            encodings_to_try = [detected_encoding] + [
+                enc for enc in fallback_encodings if enc != detected_encoding
+            ]
 
             for encoding in encodings_to_try:
                 try:
@@ -630,8 +601,8 @@ class TantivyAgent:
 
             # Last resort: try UTF-8 with error replacement
             try:
-                content = content_bytes.decode('utf-8', errors='replace')
-                return content, 'utf-8-replace'
+                content = content_bytes.decode("utf-8", errors="replace")
+                return content, "utf-8-replace"
             except (MemoryError, SystemError):
                 return None, "failed"
 
@@ -640,6 +611,8 @@ class TantivyAgent:
 
     def _parse_markdown(self, file_path):
         """Parse markdown file and extract metadata"""
+        import re
+
         try:
             content, encoding_info = self._read_file_with_encoding_detection(file_path)
 
@@ -653,8 +626,10 @@ class TantivyAgent:
                     return None
 
             # Log encoding detection for debugging (only if not UTF-8)
-            if encoding_info != 'utf-8':
-                print(f"📖 {os.path.relpath(file_path, self.project_root)}: detected encoding {encoding_info}")
+            if encoding_info != "utf-8":
+                print(
+                    f"  {os.path.relpath(file_path, self.project_root)}: detected encoding {encoding_info}"
+                )
 
         except OSError as e:
             print(f"Error reading {file_path}: {e}")
@@ -680,8 +655,8 @@ class TantivyAgent:
             servers = [server_name]
 
             # Add base name for numbered servers (mp1 -> mp, ferda7 -> ferda)
-            if re.search(r'\d+$', server_name):
-                base_name = re.sub(r'\d+$', '', server_name)
+            if re.search(r"\d+$", server_name):
+                base_name = re.sub(r"\d+$", "", server_name)
                 if base_name and base_name != server_name:
                     servers.append(base_name)
 
@@ -704,42 +679,44 @@ class TantivyAgent:
         return {
             "title": title_normalized,
             "body": body_normalized,
-            "tags": " ".join(meta.get("tags", [])) if isinstance(meta.get("tags"), list)
-                   else meta.get("tags", "") or "",
-            "servers": " ".join(meta.get("servers", [])) if isinstance(meta.get("servers"), list)
-                     else meta.get("servers", "") or "",
-            "path": rel_path
+            "tags": " ".join(meta.get("tags", []))
+            if isinstance(meta.get("tags"), list)
+            else meta.get("tags", "") or "",
+            "servers": " ".join(meta.get("servers", []))
+            if isinstance(meta.get("servers"), list)
+            else meta.get("servers", "") or "",
+            "path": rel_path,
         }
 
     def _create_schema(self):
         """Create Tantivy schema from configuration"""
         schema_builder = tantivy.SchemaBuilder()
 
-        for field_name, field_config in self.config['schema_fields'].items():
+        for field_name, field_config in self.config["schema_fields"].items():
             schema_builder.add_text_field(
                 field_name,
                 stored=True,
-                tokenizer_name=field_config.get('tokenizer', 'en_stem')
+                tokenizer_name=field_config.get("tokenizer", "en_stem"),
             )
 
         return schema_builder.build()
 
     def _should_rebuild_index(self, data_dir):
         """Check if index needs to be rebuilt based on file modifications"""
-        index_info_path = os.path.join(data_dir, 'index_info.json')
+        index_info_path = os.path.join(data_dir, "index_info.json")
 
         if not os.path.exists(index_info_path):
             return True
 
         try:
-            with open(index_info_path, 'r') as f:
+            with open(index_info_path, "r") as f:
                 index_info = json.load(f)
 
             # Check if any indexed file was modified
-            for file_path in index_info.get('files', []):
+            for file_path in index_info.get("files", []):
                 if os.path.exists(file_path):
                     file_mtime = os.path.getmtime(file_path)
-                    if file_mtime > index_info.get('timestamp', 0):
+                    if file_mtime > index_info.get("timestamp", 0):
                         return True
                 else:
                     # File was deleted
@@ -750,26 +727,28 @@ class TantivyAgent:
             # If we can't read index info or it's corrupt, rebuild
             return True
 
-    def index_command(self, force: bool = False, show_dirs: bool = False, show_files: bool = False) -> None:
+    def index_command(
+        self, force: bool = False, show_dirs: bool = False, show_files: bool = False
+    ) -> None:
         """Create or update document index"""
-        print("🔍 Starting document indexing...")
+        print("Starting document indexing...")
 
         # Ensure data directory exists
         data_dir = self._ensure_data_dir()
-        index_dir = os.path.join(data_dir, 'idx')
+        index_dir = os.path.join(data_dir, "idx")
 
         # Check if rebuild is needed
         if not force and not self._should_rebuild_index(data_dir):
-            print("✅ Index is up to date")
+            print("Index is up to date")
             return
 
         # Get files to index
         files, dirs_processed = self._get_files_for_indexing(show_dirs, show_files)
         if not files:
-            print("⚠️  No files found to index")
+            print("No files found to index")
             return
 
-        print(f"📁 Found {len(files)} files to index")
+        print(f"Found {len(files)} files to index")
 
         # Parse documents
         docs = []
@@ -779,7 +758,7 @@ class TantivyAgent:
                 docs.append(doc)
 
         if not docs:
-            print("⚠️  No valid documents found")
+            print("No valid documents found")
             return
 
         # Remove old index and create new directory
@@ -792,7 +771,7 @@ class TantivyAgent:
         index = tantivy.Index(schema, path=index_dir)
 
         # Index documents
-        print(f"📝 Indexing {len(docs)} documents...")
+        print(f"Indexing {len(docs)} documents...")
         writer = index.writer()
 
         for doc_data in docs:
@@ -801,30 +780,32 @@ class TantivyAgent:
         writer.commit()
 
         # Save index info
-        index_info = {
-            'timestamp': time.time(),
-            'files': files,
-            'count': len(docs)
-        }
+        index_info = {"timestamp": time.time(), "files": files, "count": len(docs)}
 
-        with open(os.path.join(data_dir, 'index_info.json'), 'w') as f:
+        with open(os.path.join(data_dir, "index_info.json"), "w") as f:
             json.dump(index_info, f, indent=2)
 
-        print(f"✅ Successfully indexed {len(docs)} documents")
-        print(f"📍 Index saved to: {index_dir}")
-        print("💡 You can now search with: python tantivy2agents.py search 'your query'")
+        print(f"Successfully indexed {len(docs)} documents")
+        print(f"Index saved to: {index_dir}")
+        print("You can now search with: tantivy2agents search 'your query'")
 
-    def search_command(self, query: str, limit: Optional[int] = None, format_output: Optional[str] = None, output_file: Optional[str] = None) -> None:
+    def search_command(
+        self,
+        query: str,
+        limit: Optional[int] = None,
+        format_output: Optional[str] = None,
+        output_file: Optional[str] = None,
+    ) -> None:
         """Search in indexed documents"""
         if not query:
-            print("❌ Please provide a search query")
+            print("Please provide a search query")
             return
 
-        data_dir = os.path.join(self.project_root, self.config['index_dir'])
-        index_dir = os.path.join(data_dir, 'idx')
+        data_dir = os.path.join(self.project_root, self.config["index_dir"])
+        index_dir = os.path.join(data_dir, "idx")
 
         if not os.path.exists(index_dir):
-            print("❌ Index not found. Run 'python tantivy2agents.py index' first")
+            print("Index not found. Run 'tantivy2agents index' first")
             return
 
         try:
@@ -836,16 +817,16 @@ class TantivyAgent:
             normalized_query = normalize_czech_text(query)
 
             # Parse query
-            field_names = list(self.config['schema_fields'].keys())
+            field_names = list(self.config["schema_fields"].keys())
             query_parser = index.parse_query(normalized_query, field_names)
 
             # Search
-            limit = limit or self.config['search']['default_limit']
+            limit = limit or self.config["search"]["default_limit"]
             search_limit = limit * 4  # Get more results for filtering
             result = searcher.search(query_parser, search_limit)
 
             if not result.hits:
-                print("🔍 No results found")
+                print("No results found")
                 return
 
             # Process results
@@ -858,42 +839,44 @@ class TantivyAgent:
             filtered_results = self._apply_filters(results_with_docs, query)
 
             if not filtered_results:
-                print("🔍 No results found after filtering")
+                print("No results found after filtering")
                 return
 
             # Export or display results
             if format_output:
-                self._export_results(filtered_results[:limit], query, format_output, output_file)
+                self._export_results(
+                    filtered_results[:limit], query, format_output, output_file
+                )
             else:
                 self._display_results(filtered_results[:limit])
 
         except (OSError, ValueError, RuntimeError) as e:
-            print(f"❌ Search error: {e}")
+            print(f"Search error: {e}")
 
     def _display_results(self, results):
         """Display results in standard format"""
-        print(f"🎯 Found {len(results)} results:")
+        print(f"Found {len(results)} results:")
         print()
 
         for score, doc_address, doc in results:
             path = doc["path"][0]
             title = doc["title"][0] if doc["title"] else "No title"
-            print(f"📄 {path}")
+            print(f"  {path}")
             print(f"   {title}")
             print(f"   [score: {score:.3f}]")
             print()
 
     def _export_results(self, results, query, format_output, output_file):
         """Export results in specified format"""
-        if format_output.lower() == 'json':
+        if format_output.lower() == "json":
             self._export_json(results, query, output_file)
-        elif format_output.lower() == 'csv':
+        elif format_output.lower() == "csv":
             self._export_csv(results, query, output_file)
-        elif format_output.lower() == 'txt':
+        elif format_output.lower() == "txt":
             self._export_txt(results, query, output_file)
         else:
-            print(f"❌ Unsupported format: {format_output}")
-            print("💡 Supported formats: json, csv, txt")
+            print(f"Unsupported format: {format_output}")
+            print("Supported formats: json, csv, txt")
             return
 
     def _export_json(self, results, query, output_file):
@@ -902,7 +885,7 @@ class TantivyAgent:
             "query": query,
             "timestamp": datetime.now().isoformat(),
             "total_results": len(results),
-            "results": []
+            "results": [],
         }
 
         for score, doc_address, doc in results:
@@ -912,23 +895,21 @@ class TantivyAgent:
                 "title": doc["title"][0] if doc["title"] else "No title",
                 "body": doc["body"][0] if doc["body"] else "",
                 "tags": doc["tags"][0] if doc["tags"] else "",
-                "servers": doc["servers"][0] if doc["servers"] else ""
+                "servers": doc["servers"][0] if doc["servers"] else "",
             }
             export_data["results"].append(result_item)
 
         if output_file:
-            with open(output_file, 'w', encoding='utf-8') as f:
+            with open(output_file, "w", encoding="utf-8") as f:
                 json.dump(export_data, f, indent=2, ensure_ascii=False)
-            print(f"✅ Results exported to {output_file}")
+            print(f"Results exported to {output_file}")
         else:
             print(json.dumps(export_data, indent=2, ensure_ascii=False))
 
     def _export_csv(self, results, query, output_file):
         """Export results as CSV"""
-        import csv
-
         if output_file:
-            file_handle = open(output_file, 'w', newline='', encoding='utf-8')
+            file_handle = open(output_file, "w", newline="", encoding="utf-8")
         else:
             file_handle = sys.stdout
 
@@ -936,7 +917,7 @@ class TantivyAgent:
             writer = csv.writer(file_handle)
 
             # Write header
-            writer.writerow(['Score', 'Path', 'Title', 'Tags', 'Servers'])
+            writer.writerow(["Score", "Path", "Title", "Tags", "Servers"])
 
             # Write results
             for score, doc_address, doc in results:
@@ -945,12 +926,12 @@ class TantivyAgent:
                     doc["path"][0] if doc["path"] else "",
                     doc["title"][0] if doc["title"] else "No title",
                     doc["tags"][0] if doc["tags"] else "",
-                    doc["servers"][0] if doc["servers"] else ""
+                    doc["servers"][0] if doc["servers"] else "",
                 ]
                 writer.writerow(row)
 
             if output_file:
-                print(f"✅ Results exported to {output_file}")
+                print(f"Results exported to {output_file}")
             else:
                 print()  # Add newline after CSV output
 
@@ -961,13 +942,15 @@ class TantivyAgent:
     def _export_txt(self, results, query, output_file):
         """Export results as plain text"""
         if output_file:
-            file_handle = open(output_file, 'w', encoding='utf-8')
+            file_handle = open(output_file, "w", encoding="utf-8")
         else:
             file_handle = sys.stdout
 
         try:
             file_handle.write(f"Search Results for: '{query}'\n")
-            file_handle.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            file_handle.write(
+                f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            )
             file_handle.write(f"Total Results: {len(results)}\n")
             file_handle.write("=" * 60 + "\n\n")
 
@@ -989,7 +972,7 @@ class TantivyAgent:
 
                 # Add snippet of body (first 200 characters)
                 if body:
-                    snippet = body.replace('\n', ' ')[:200]
+                    snippet = body.replace("\n", " ")[:200]
                     if len(body) > 200:
                         snippet += "..."
                     file_handle.write(f"   Preview: {snippet}\n")
@@ -997,7 +980,7 @@ class TantivyAgent:
                 file_handle.write("\n")
 
             if output_file:
-                print(f"✅ Results exported to {output_file}")
+                print(f"Results exported to {output_file}")
 
         finally:
             if output_file:
@@ -1009,8 +992,8 @@ class TantivyAgent:
         filtered = []
 
         # Incident filtering
-        hide_incidents = self.config['search'].get('hide_incidents', True)
-        show_incidents_on = self.config['search'].get('show_incidents_on', ['incident'])
+        hide_incidents = self.config["search"].get("hide_incidents", True)
+        show_incidents_on = self.config["search"].get("show_incidents_on", ["incident"])
 
         for score, doc_address, doc in results:
             file_path = doc["path"][0]
@@ -1026,24 +1009,26 @@ class TantivyAgent:
 
     def clear_command(self) -> None:
         """Clear the index"""
-        print("🗑️  Clearing index...")
+        print("Clearing index...")
 
-        data_dir = os.path.join(self.project_root, self.config['index_dir'])
+        data_dir = os.path.join(self.project_root, self.config["index_dir"])
 
         if os.path.exists(data_dir):
             shutil.rmtree(data_dir)
-            print(f"✅ Cleared index directory: {data_dir}")
+            print(f"Cleared index directory: {data_dir}")
         else:
-            print("ℹ️  No index directory found")
+            print("No index directory found")
 
-    def install_command(self, target_dir: Optional[str] = None, create_config: bool = True) -> None:
+    def install_command(
+        self, target_dir: Optional[str] = None, create_config: bool = True
+    ) -> None:
         """Install Tantivy Agent in target project with smart setup"""
         if target_dir:
             target_project_root = os.path.abspath(target_dir)
-            print(f"🔧 Installing Tantivy Agent in {target_project_root}...")
+            print(f"Installing Tantivy Agent in {target_project_root}...")
         else:
             target_project_root = self.project_root
-            print("🔧 Installing Tantivy Agent in current project...")
+            print("Installing Tantivy Agent in current project...")
 
         # Step 1: Skip symlink creation (user will create it manually)
 
@@ -1057,45 +1042,16 @@ class TantivyAgent:
         # Step 4: Setup .gitignore
         self._setup_gitignore(target_project_root)
 
-        print("✅ Installation complete!")
-        print(f"💡 Tantivy Agent installed in {target_project_root}")
-        print(f"💡 Create your own symlink: ln -s /path/to/tantivy2agents.py ./tools/tantivy2agent")
-        print("💡 Run './tools/tantivy2agents.py index' to create your first index")
-
-    def _create_symlink(self, target_project_root):
-        """Create symlink to tantivy2agents.py in target project"""
-        # Get current script location
-        current_script = os.path.abspath(__file__)
-        target_tools_dir = os.path.join(target_project_root, 'tools')
-        target_symlink = os.path.join(target_tools_dir, 'tantivy2agents.py')
-
-        # Create tools directory if it doesn't exist
-        os.makedirs(target_tools_dir, exist_ok=True)
-
-        # Remove existing symlink if it exists
-        if os.path.exists(target_symlink):
-            if os.path.islink(target_symlink):
-                os.unlink(target_symlink)
-            else:
-                # It's a regular file, not a symlink
-                backup_path = target_symlink + '.backup'
-                shutil.move(target_symlink, backup_path)
-                print(f"⚠️  Existing file backed up to: {backup_path}")
-
-        # Create symlink
-        try:
-            os.symlink(current_script, target_symlink)
-            # Skipped symlink creation (user will create it manually)
-        except OSError as e:
-            print(f"❌ Failed to create symlink: {e}")
-            print(f"💡 You can manually link: ln -s {current_script} {target_symlink}")
+        print("Installation complete!")
+        print(f"Tantivy Agent installed in {target_project_root}")
+        print("Run 'tantivy2agents index' to create your first index")
 
     def _create_default_config(self, target_project_root):
         """Create default configuration for target project"""
-        config_path = os.path.join(target_project_root, '.tantivi2agents.json')
+        config_path = os.path.join(target_project_root, ".tantivi2agents.json")
 
         if os.path.exists(config_path):
-            print(f"ℹ️  Configuration already exists: {config_path}")
+            print(f"Configuration already exists: {config_path}")
             return
 
         # Temporarily change project root for detection
@@ -1105,16 +1061,16 @@ class TantivyAgent:
         try:
             # Detect project type
             project_type = self._detect_project_type()
-            print(f"🔍 Detected project type: {project_type}")
+            print(f"Detected project type: {project_type}")
 
             # Get default config
             default_config = self._get_default_config_for_project_type(project_type)
 
             # Write config file
-            with open(config_path, 'w', encoding='utf-8') as f:
+            with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(default_config, f, indent=2)
 
-            print(f"✅ Created configuration: {config_path}")
+            print(f"Created configuration: {config_path}")
         finally:
             # Restore original project root
             self.project_root = original_root
@@ -1127,67 +1083,56 @@ class TantivyAgent:
             use_absolute_path: Use absolute vs relative path (for future flexibility)
         """
         target_root = target_root or self.project_root
-        claude_dir = os.path.join(target_root, '.claude')
+        claude_dir = os.path.join(target_root, ".claude")
         os.makedirs(claude_dir, exist_ok=True)
 
-        settings_path = os.path.join(claude_dir, 'settings.json')
-        tools_dir = os.path.join(target_root, 'tools')
-        hook_command = os.path.join(tools_dir, 'tantivy2agents.py')
+        settings_path = os.path.join(claude_dir, "settings.json")
 
         # Load existing settings or create new
         settings = {}
         if os.path.exists(settings_path):
-            with open(settings_path, 'r', encoding='utf-8') as f:
+            with open(settings_path, "r", encoding="utf-8") as f:
                 settings = json.load(f)
 
         # Add hooks configuration
-        if 'hooks' not in settings:
-            settings['hooks'] = {}
-        if 'PostToolUse' not in settings['hooks']:
-            settings['hooks']['PostToolUse'] = []
+        if "hooks" not in settings:
+            settings["hooks"] = {}
+        if "PostToolUse" not in settings["hooks"]:
+            settings["hooks"]["PostToolUse"] = []
 
         # Check if hook already exists
         existing_hook = None
-        for hook in settings['hooks']['PostToolUse']:
-            if 'hooks' in hook:
-                for subhook in hook['hooks']:
-                    if 'command' in subhook and 'tantivy2agent' in subhook['command']:
+        for hook in settings["hooks"]["PostToolUse"]:
+            if "hooks" in hook:
+                for subhook in hook["hooks"]:
+                    if "command" in subhook and "tantivy2agent" in subhook["command"]:
                         existing_hook = hook
                         break
 
         if existing_hook:
-            print("ℹ️  Claude hooks already installed")
+            print("Claude hooks already installed")
             return
 
-        # Add new hook
+        # Add new hook - use the installed command name
         new_hook = {
             "matcher": "Edit|Write|MultiEdit",
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": f"{hook_command} hook-clear"
-                }
-            ]
+            "hooks": [{"type": "command", "command": "tantivy2agents hook-clear"}],
         }
-        settings['hooks']['PostToolUse'].append(new_hook)
+        settings["hooks"]["PostToolUse"].append(new_hook)
 
         # Write settings back
-        with open(settings_path, 'w', encoding='utf-8') as f:
+        with open(settings_path, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2)
 
-        print("✅ Claude hooks installed")
+        print("Claude hooks installed")
 
     def _setup_gitignore(self, target_project_root):
         """Setup .gitignore in target project"""
-        gitignore_path = os.path.join(target_project_root, '.gitignore')
-        gitignore_entries = [
-            "# Tantivy Agent data",
-            f"{self.config['index_dir']}/",
-            "!tools/tantivy2agents.py"
-        ]
+        gitignore_path = os.path.join(target_project_root, ".gitignore")
+        gitignore_entries = ["# Tantivy Agent data", f"{self.config['index_dir']}/"]
 
         if os.path.exists(gitignore_path):
-            with open(gitignore_path, 'r', encoding='utf-8') as f:
+            with open(gitignore_path, "r", encoding="utf-8") as f:
                 existing_content = f.read()
 
             # Check if entries already exist
@@ -1197,30 +1142,30 @@ class TantivyAgent:
                     entries_to_add.append(entry)
 
             if entries_to_add:
-                with open(gitignore_path, 'a', encoding='utf-8') as f:
-                    f.write('\n')
+                with open(gitignore_path, "a", encoding="utf-8") as f:
+                    f.write("\n")
                     for entry in entries_to_add:
-                        f.write(entry + '\n')
-                print("✅ Updated .gitignore")
+                        f.write(entry + "\n")
+                print("Updated .gitignore")
         else:
-            with open(gitignore_path, 'w', encoding='utf-8') as f:
+            with open(gitignore_path, "w", encoding="utf-8") as f:
                 for entry in gitignore_entries:
-                    f.write(entry + '\n')
-            print("✅ Created .gitignore")
+                    f.write(entry + "\n")
+            print("Created .gitignore")
 
     def hook_clear_command(self) -> None:
         """Clear index when files are modified (used by Claude hooks)"""
         # This is called by Claude hooks - check if any indexed files were modified
         # For now, just clear the index to be safe
-        data_dir = os.path.join(self.project_root, self.config['index_dir'])
+        data_dir = os.path.join(self.project_root, self.config["index_dir"])
 
         if os.path.exists(data_dir):
-            index_info_path = os.path.join(data_dir, 'index_info.json')
+            index_info_path = os.path.join(data_dir, "index_info.json")
             if os.path.exists(index_info_path):
                 # Mark index as outdated instead of deleting
-                with open(index_info_path, 'r+') as f:
+                with open(index_info_path, "r+") as f:
                     index_info = json.load(f)
-                    index_info['outdated'] = True
+                    index_info["outdated"] = True
                     f.seek(0)
                     json.dump(index_info, f, indent=2)
                     f.truncate()
@@ -1230,15 +1175,17 @@ class TantivyAgent:
 
     def encoding_info_command(self) -> None:
         """Show encoding information for files that would be indexed"""
-        print("🔍 Analyzing file encodings...")
+        print("Analyzing file encodings...")
 
         # Get files to index
-        files, dirs_processed = self._get_files_for_indexing(show_dirs=False, show_files=False)
+        files, dirs_processed = self._get_files_for_indexing(
+            show_dirs=False, show_files=False
+        )
         if not files:
-            print("⚠️  No files found to analyze")
+            print("No files found to analyze")
             return
 
-        print(f"📁 Analyzing {len(files)} files...")
+        print(f"Analyzing {len(files)} files...")
         print()
 
         encoding_stats = {}
@@ -1249,7 +1196,7 @@ class TantivyAgent:
             rel_path = os.path.relpath(file_path, self.project_root)
 
             try:
-                with open(file_path, 'rb') as f:
+                with open(file_path, "rb") as f:
                     content_bytes = f.read()
 
                 # Check if binary
@@ -1263,28 +1210,32 @@ class TantivyAgent:
                 # Try to read with detected encoding
                 success = False
                 try:
-                    content = content_bytes.decode(detected_encoding)
+                    _ = content_bytes.decode(detected_encoding)  # Test decode
                     success = True
                 except (UnicodeDecodeError, LookupError):
                     # Try fallback encodings
-                    encoding_config = self.config.get('encoding', {})
-                    fallback_encodings = encoding_config.get('fallback_encodings', ['utf-8'])
+                    encoding_config = self.config.get("encoding", {})
+                    fallback_encodings = encoding_config.get(
+                        "fallback_encodings", ["utf-8"]
+                    )
 
                     for encoding in fallback_encodings:
                         if encoding == detected_encoding:
                             continue
                         try:
-                            content = content_bytes.decode(encoding)
-                            detected_encoding = f"{detected_encoding}→{encoding}"
+                            _ = content_bytes.decode(encoding)  # Test decode
+                            detected_encoding = f"{detected_encoding}->{encoding}"
                             success = True
                             break
                         except (UnicodeDecodeError, LookupError):
                             continue
 
                 if success:
-                    encoding_stats[detected_encoding] = encoding_stats.get(detected_encoding, 0) + 1
-                    if detected_encoding != 'utf-8':
-                        print(f"📄 {rel_path}")
+                    encoding_stats[detected_encoding] = (
+                        encoding_stats.get(detected_encoding, 0) + 1
+                    )
+                    if detected_encoding != "utf-8":
+                        print(f"  {rel_path}")
                         print(f"   Encoding: {detected_encoding}")
                         print(f"   Size: {len(content_bytes)} bytes")
                         print()
@@ -1295,13 +1246,13 @@ class TantivyAgent:
                 problem_files.append(f"{rel_path} (error: {str(e)})")
 
         # Show summary
-        print("📊 Encoding Summary:")
+        print("Encoding Summary:")
         print("=" * 40)
         for encoding, count in sorted(encoding_stats.items()):
             print(f"{encoding:20} : {count:3} files")
 
         if binary_files:
-            print(f"\n🚫 Binary files skipped: {len(binary_files)}")
+            print(f"\nBinary files skipped: {len(binary_files)}")
             if len(binary_files) <= 5:
                 for file in binary_files:
                     print(f"   {file}")
@@ -1311,113 +1262,38 @@ class TantivyAgent:
                 print(f"   ... and {len(binary_files) - 3} more")
 
         if problem_files:
-            print(f"\n❌ Problem files: {len(problem_files)}")
+            print(f"\nProblem files: {len(problem_files)}")
             for file in problem_files[:10]:
                 print(f"   {file}")
             if len(problem_files) > 10:
                 print(f"   ... and {len(problem_files) - 10} more")
 
-        print(f"\n💡 Configuration: {self.config_path}")
-        print(f"   Auto-detect: {self.config.get('encoding', {}).get('auto_detect', True)}")
-        print(f"   Confidence threshold: {self.config.get('encoding', {}).get('detection_confidence_threshold', 0.7)}")
+        print(f"\nConfiguration: {self.config_path}")
+        print(
+            f"   Auto-detect: {self.config.get('encoding', {}).get('auto_detect', True)}"
+        )
+        print(
+            f"   Confidence threshold: {self.config.get('encoding', {}).get('detection_confidence_threshold', 0.7)}"
+        )
 
     def setup_command(self) -> None:
-        """Setup command to install bash script to ~/bin"""
-        import stat
-
-        # Get the directory where tantivy2agents.py is located
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-
-        # Check if virtual environment exists in current project
-        venv_python = os.path.join(script_dir, '.venv', 'bin', 'python')
-        if not os.path.exists(venv_python):
-            print("🔧 Creating virtual environment...")
-            try:
-                subprocess.run([sys.executable, '-m', 'venv', '.venv'],
-                             cwd=script_dir, check=True)
-                print("✅ Virtual environment created")
-            except subprocess.CalledProcessError as e:
-                print(f"❌ Failed to create virtual environment: {e}")
-                return
-
-            # Install dependencies
-            requirements_file = os.path.join(script_dir, 'requirements.txt')
-            if os.path.exists(requirements_file):
-                print("📦 Installing dependencies...")
-                try:
-                    subprocess.run([venv_python, '-m', 'pip', 'install', '-r', requirements_file],
-                                 cwd=script_dir, check=True)
-                    print("✅ Dependencies installed")
-                except subprocess.CalledProcessError as e:
-                    print(f"❌ Failed to install dependencies: {e}")
-                    return
-            else:
-                print("⚠️ No requirements.txt found, installing basic dependencies...")
-                try:
-                    subprocess.run([venv_python, '-m', 'pip', 'install', 'PyYAML', 'tantivy', 'charset-normalizer'],
-                                 cwd=script_dir, check=True)
-                    print("✅ Basic dependencies installed")
-                except subprocess.CalledProcessError as e:
-                    print(f"❌ Failed to install dependencies: {e}")
-                    return
-        else:
-            print(f"✅ Virtual environment already exists: {venv_python}")
-
-            # Verify that the python in venv is working
-            try:
-                result = subprocess.run([venv_python, '--version'],
-                                      capture_output=True, text=True, check=True)
-                print(f"✅ Virtual environment Python: {result.stdout.strip()}")
-            except subprocess.CalledProcessError as e:
-                print(f"❌ Virtual environment Python not working: {e}")
-                return
-
-        # Ensure ~/bin directory exists
-        bin_dir = os.path.expanduser('~/bin')
-        os.makedirs(bin_dir, exist_ok=True)
-
-        # Create bash script
-        script_path = os.path.join(bin_dir, 'tantivy2agents')
-        script_content = f'''#!/bin/bash
-PROJECT_DIR="{script_dir}"
-
-if [ -f "$PROJECT_DIR/.venv/bin/python" ]; then
-    "$PROJECT_DIR/.venv/bin/python" "$PROJECT_DIR/tantivy2agents.py" "$@"
-else
-    echo "Error: Python not found at $PROJECT_DIR/.venv/bin/python"
-    echo "Please run: python $PROJECT_DIR/tantivy2agents.py setup"
-    exit 1
-fi
-'''
-
-        try:
-            with open(script_path, 'w') as f:
-                f.write(script_content)
-
-            # Make script executable
-            st = os.stat(script_path)
-            os.chmod(script_path, st.st_mode | stat.S_IEXEC)
-
-            print(f"✅ Bash script created: {script_path}")
-            print(f"📁 Project directory: {script_dir}")
-
-            # Check if ~/bin is in PATH
-            path_dirs = os.environ.get('PATH', '').split(':')
-            if bin_dir not in path_dirs:
-                print(f"⚠️ Warning: {bin_dir} is not in your PATH")
-                print(f"   Add this line to your ~/.bashrc or ~/.zshrc:")
-                print(f"   export PATH=\"$PATH:{bin_dir}\"")
-                print("   Then restart your terminal or run: source ~/.bashrc")
-            else:
-                print("✅ ~/bin is already in your PATH")
-
-            print("\n🎉 Setup complete! You can now use:")
-            print("   tantivy2agents index")
-            print("   tantivy2agents search \"your query\"")
-            print("   tantivy2agents install")
-
-        except OSError as e:
-            print(f"❌ Failed to create bash script: {e}")
+        """Setup command - now recommends using uv/uvx instead"""
+        print("Setup is no longer needed with uv/uvx!")
+        print()
+        print("Install and run with uvx:")
+        print(
+            "  uvx --from git+https://github.com/orgoj/tantivi2agents tantivy2agents --help"
+        )
+        print()
+        print("Or install locally:")
+        print("  uv pip install git+https://github.com/orgoj/tantivi2agents")
+        print("  tantivy2agents --help")
+        print()
+        print("For development:")
+        print("  git clone https://github.com/orgoj/tantivi2agents")
+        print("  cd tantivi2agents")
+        print("  uv sync")
+        print("  uv run tantivy2agents --help")
 
     def status_command(self) -> None:
         """Status command to display index information and statistics"""
@@ -1426,44 +1302,46 @@ fi
         index_info: dict | None = None
         indexed_files: list = []
 
-        print("📊 Tantivy Agent Status\n")
+        print("Tantivy Agent Status\n")
 
         # Basic project information
-        print(f"📁 Project: {self.project_root}")
-        print(f"📄 Config: {os.path.relpath(self.config_path, self.project_root)}")
+        print(f"Project: {self.project_root}")
+        print(f"Config: {os.path.relpath(self.config_path, self.project_root)}")
 
         # Index directory information
-        data_dir = os.path.join(self.project_root, self.config['index_dir'])
-        index_path = os.path.join(data_dir, 'idx')
-        print(f"🗂️  Index: {os.path.relpath(index_path, self.project_root)}")
+        data_dir = os.path.join(self.project_root, self.config["index_dir"])
+        index_path = os.path.join(data_dir, "idx")
+        print(f"Index: {os.path.relpath(index_path, self.project_root)}")
 
         # Check if index exists
         if not os.path.exists(index_path):
-            print(f"\n❌ Index not found at: {index_path}")
-            print("   Run 'python tantivy2agents.py index' to create the index")
+            print(f"\nIndex not found at: {index_path}")
+            print("   Run 'tantivy2agents index' to create the index")
             return
 
-        print("\n📈 Index Statistics")
+        print("\nIndex Statistics")
 
         # Load index info from JSON
-        index_info_path = os.path.join(data_dir, 'index_info.json')
+        index_info_path = os.path.join(data_dir, "index_info.json")
         try:
             if os.path.exists(index_info_path):
-                with open(index_info_path, 'r') as f:
+                with open(index_info_path, "r") as f:
                     index_info = json.load(f)
 
-                doc_count = index_info.get('count', 0)
-                timestamp = index_info.get('timestamp', 0)
-                last_update = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
-                indexed_files = index_info.get('files', [])
+                doc_count = index_info.get("count", 0)
+                timestamp = index_info.get("timestamp", 0)
+                last_update = datetime.fromtimestamp(timestamp).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+                indexed_files = index_info.get("files", [])
 
                 print(f"   Documents: {doc_count:,}")
                 print(f"   Last update: {last_update}")
                 print(f"   Files in index: {len(indexed_files):,}")
             else:
-                print("   ⚠️ Index metadata not found")
+                print("   Index metadata not found")
         except (OSError, json.JSONDecodeError, KeyError) as e:
-            print(f"   ⚠️ Error reading index metadata: {e}")
+            print(f"   Error reading index metadata: {e}")
 
         # Calculate index size
         try:
@@ -1479,14 +1357,9 @@ fi
             print(f"   Index size: {index_size_mb:.1f} MB")
             print(f"   Index files: {index_files}")
         except OSError as e:
-            print(f"   ⚠️ Error calculating index size: {e}")
+            print(f"   Error calculating index size: {e}")
 
-        # Tantivy index statistics
-        # Note: Document count is already reported above from index_info.json
-        # Tantivy Searcher doesn't have len() or num_docs() in Python bindings
-        # The count from index_info.json is the authoritative source
-
-        print("\n📂 File Information")
+        print("\nFile Information")
 
         # Get files to index
         files_to_index = []
@@ -1494,7 +1367,7 @@ fi
             files_to_index, _ = self._get_files_for_indexing()
             print(f"   Files to index: {len(files_to_index):,}")
         except (OSError, RuntimeError, ValueError) as e:
-            print(f"   ⚠️ Error getting files to index: {e}")
+            print(f"   Error getting files to index: {e}")
 
         # Check available vs missing files
         if index_info is not None and indexed_files:
@@ -1513,15 +1386,19 @@ fi
             # Get file modification times
             if files_to_index:
                 try:
-                    mtimes = [os.path.getmtime(f) for f in files_to_index if os.path.exists(f)]
+                    mtimes = [
+                        os.path.getmtime(f) for f in files_to_index if os.path.exists(f)
+                    ]
                     if mtimes:
                         latest_mtime = max(mtimes)
-                        latest_file = datetime.fromtimestamp(latest_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                        latest_file = datetime.fromtimestamp(latest_mtime).strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
                         print(f"   Last modified: {latest_file}")
                 except (OSError, ValueError) as e:
-                    print(f"   ⚠️ Error getting modification times: {e}")
+                    print(f"   Error getting modification times: {e}")
 
-        print("\n🔧 System")
+        print("\nSystem")
 
         # Tantivy version
         try:
@@ -1535,78 +1412,13 @@ fi
             if index_info is not None:
                 needs_rebuild = self._should_rebuild_index(data_dir)
                 if needs_rebuild:
-                    print("   Index status: ⚠️ Out of date")
-                    print("   💡 Run 'python tantivy2agents.py index' to update")
+                    print("   Index status: Out of date")
+                    print("   Run 'tantivy2agents index' to update")
                 else:
-                    print("   Index status: ✅ Up to date")
+                    print("   Index status: Up to date")
             else:
-                print("   Index status: ⚠️ Unknown")
+                print("   Index status: Unknown")
         except (OSError, json.JSONDecodeError) as e:
-            print(f"   Index status: ⚠️ Error checking: {e}")
+            print(f"   Index status: Error checking: {e}")
 
         print()  # Empty line at end
-
-
-def main():
-    """Main entry point"""
-    parser = argparse.ArgumentParser(
-        description='Universal Tantivy Agent - Document indexing and search',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python tantivy2agents.py index
-  python tantivy2agents.py search "my query"
-  python tantivy2agents.py search "my query" --limit 5
-  python tantivy2agents.py search "server" --format json --output results.json
-  python tantivy2agents.py search "config" --format csv -o search_results.csv
-  python tantivy2agents.py clear
-  python tantivy2agents.py install
-  python tantivy2agents.py install --target /path/to/project
-  python tantivy2agents.py install --target ../my-project --no-config
-        """
-    )
-
-    parser.add_argument('command',
-                       choices=['index', 'search', 'clear', 'install', 'hook-clear', 'encoding-info', 'setup', 'status'],
-                       help='Command to execute')
-
-    parser.add_argument('query', nargs='*', help='Search query (for search command)')
-    parser.add_argument('--limit', type=int, help='Number of search results')
-    parser.add_argument('--force', action='store_true', help='Force rebuild index')
-    parser.add_argument('--config', help='Path to config file')
-    parser.add_argument('--format', choices=['json', 'csv', 'txt'],
-                       help='Export results in specified format')
-    parser.add_argument('--output', '-o', help='Output file for exported results')
-    parser.add_argument('--target', '-t', help='Target directory for installation (install command only)')
-    parser.add_argument('--no-config', action='store_true', help='Skip config creation (install command only)')
-    parser.add_argument('--dirs', action='store_true', help='Show directories that will be processed')
-    parser.add_argument('--files', action='store_true', help='Show files that will be processed')
-
-    args = parser.parse_args()
-
-    # Initialize agent
-    agent = TantivyAgent(args.config)
-
-    # Execute command
-    if args.command == 'index':
-        agent.index_command(force=args.force, show_dirs=args.dirs, show_files=args.files)
-    elif args.command == 'search':
-        query = ' '.join(args.query) if args.query else ''
-        agent.search_command(query, args.limit, args.format, args.output)
-    elif args.command == 'clear':
-        agent.clear_command()
-    elif args.command == 'install':
-        create_config = not args.no_config
-        agent.install_command(args.target, create_config)
-    elif args.command == 'hook-clear':
-        agent.hook_clear_command()
-    elif args.command == 'encoding-info':
-        agent.encoding_info_command()
-    elif args.command == 'setup':
-        agent.setup_command()
-    elif args.command == 'status':
-        agent.status_command()
-
-
-if __name__ == "__main__":
-    main()

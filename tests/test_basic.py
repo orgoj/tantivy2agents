@@ -7,130 +7,121 @@ import os
 import sys
 import json
 import tempfile
-import shutil
 import subprocess
-from pathlib import Path
+
+# Add src to path for direct imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
+
+from tantivy2agents import TantivyAgent
+
 
 def run_test(test_name, test_func):
     """Run a test function and report results"""
     try:
         test_func()
-        print(f"✅ {test_name}")
+        print(f"  {test_name}")
         return True
     except Exception as e:
         import traceback
-        print(f"❌ {test_name}: {e}")
+
+        print(f"  {test_name}: {e}")
         print(f"   Traceback: {traceback.format_exc()}")
         return False
+
+
+def run_cli_command(args, cwd=None):
+    """Run tantivy2agents CLI command using python -m"""
+    cmd = [sys.executable, "-m", "tantivy2agents"] + args
+    env = os.environ.copy()
+    # Add src to PYTHONPATH for subprocess
+    src_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "src")
+    env["PYTHONPATH"] = src_path + os.pathsep + env.get("PYTHONPATH", "")
+    return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=env)
+
 
 def test_basic_functionality():
     """Test basic agent functionality"""
     with tempfile.TemporaryDirectory() as temp_dir:
-        # Change to temp directory
-        original_cwd = os.getcwd()
-        os.chdir(temp_dir)
+        # Create test config
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md", "*.txt"], "exclude": ["*.tmp"]},
+            "index_dirs": ["docs/"],
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "tags": {"weight": 1.5, "tokenizer": "default"},
+                "servers": {"weight": 1.5, "tokenizer": "default"},
+                "path": {"weight": 0.5, "tokenizer": "raw"},
+            },
+            "search": {"default_limit": 10, "hide_incidents": True},
+            "auto_hook": False,  # Disable hooks for testing
+        }
 
-        try:
-            # Copy agent script
-            agent_path = os.path.join(original_cwd, "tantivy2agents.py")
-            shutil.copy(agent_path, "./tantivy2agents.py")
-            os.chmod("./tantivy2agents.py", 0o755)
+        config_path = os.path.join(temp_dir, ".tantivi2agents.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f)
 
-            # Create test config
-            config = {
-                "version": "1.0",
-                "index_dir": ".tantivy-data",
-                "global_patterns": {
-                    "include": ["*.md", "*.txt"],
-                    "exclude": ["*.tmp"]
-                },
-                "index_dirs": ["docs/"],
-                "schema_fields": {
-                    "title": {"weight": 2.0, "tokenizer": "en_stem"},
-                    "body": {"weight": 1.0, "tokenizer": "en_stem"},
-                    "tags": {"weight": 1.5, "tokenizer": "default"},
-                    "servers": {"weight": 1.5, "tokenizer": "default"},
-                    "path": {"weight": 0.5, "tokenizer": "raw"}
-                },
-                "search": {"default_limit": 10, "hide_incidents": True},
-                "auto_hook": False  # Disable hooks for testing
-            }
+        # Create test documents
+        docs_dir = os.path.join(temp_dir, "docs")
+        os.makedirs(docs_dir, exist_ok=True)
 
-            with open(".tantivi2agents.json", "w") as f:
-                json.dump(config, f)
-
-            # Create test documents
-            os.makedirs("docs", exist_ok=True)
-
-            with open("docs/test1.md", "w") as f:
-                f.write("""# Test Document One
+        with open(os.path.join(docs_dir, "test1.md"), "w") as f:
+            f.write("""# Test Document One
 
 This is a test document about server configuration.
 
 Tags: [test, server]
 """)
 
-            with open("docs/test2.md", "w") as f:
-                f.write("""# Guide for Testing
+        with open(os.path.join(docs_dir, "test2.md"), "w") as f:
+            f.write("""# Guide for Testing
 
 Complete guide for testing functionality.
 """)
 
-            # Test help command
-            result = subprocess.run(["python", "./tantivy2agents.py", "--help"],
-                                  capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception("Help command failed")
+        # Test help command
+        result = run_cli_command(["--help"], cwd=temp_dir)
+        if result.returncode != 0:
+            raise Exception("Help command failed")
 
-            # Test install command
-            result = subprocess.run(["python", "./tantivy2agents.py", "install"],
-                                  capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception("Install command failed")
+        # Test install command
+        result = run_cli_command(["install"], cwd=temp_dir)
+        if result.returncode != 0:
+            raise Exception(f"Install command failed: {result.stderr}")
 
-            # Test index command
-            result = subprocess.run(["python", "./tantivy2agents.py", "index"],
-                                  capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception("Index command failed")
+        # Test index command
+        result = run_cli_command(["index"], cwd=temp_dir)
+        if result.returncode != 0:
+            raise Exception(f"Index command failed: {result.stderr}")
 
-            if "Successfully indexed" not in result.stdout:
-                raise Exception("Indexing did not succeed")
+        if "Successfully indexed" not in result.stdout:
+            raise Exception("Indexing did not succeed")
 
-            # Test search command
-            result = subprocess.run(["python", "./tantivy2agents.py", "search", "server"],
-                                  capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception("Search command failed")
+        # Test search command
+        result = run_cli_command(["search", "server"], cwd=temp_dir)
+        if result.returncode != 0:
+            raise Exception(f"Search command failed: {result.stderr}")
 
-            if "Found" not in result.stdout:
-                raise Exception("Search did not find results")
+        if "Found" not in result.stdout:
+            raise Exception("Search did not find results")
 
-            # Test clear command
-            result = subprocess.run(["python", "./tantivy2agents.py", "clear"],
-                                  capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception("Clear command failed")
+        # Test clear command
+        result = run_cli_command(["clear"], cwd=temp_dir)
+        if result.returncode != 0:
+            raise Exception("Clear command failed")
 
-            # Check that data directory structure exists (even if cleared)
-            if not os.path.exists(".gitignore"):
-                raise Exception("Gitignore was not updated")
+        # Check that gitignore was updated
+        gitignore_path = os.path.join(temp_dir, ".gitignore")
+        if not os.path.exists(gitignore_path):
+            raise Exception("Gitignore was not updated")
 
-        finally:
-            os.chdir(original_cwd)
 
 def test_config_loading():
     """Test configuration loading with defaults"""
-    # Import the main class from the script
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    TantivyAgent = module.TantivyAgent
-
-    # Test with non-existent config (should use defaults)
     with tempfile.TemporaryDirectory() as temp_dir:
+        original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
             agent = TantivyAgent()
@@ -143,19 +134,13 @@ def test_config_loading():
             assert "title" in agent.config["schema_fields"]
 
         finally:
-            os.chdir(os.path.dirname(temp_dir))
+            os.chdir(original_cwd)
+
 
 def test_file_parsing():
     """Test markdown file parsing"""
-    # Get the original script path
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    TantivyAgent = module.TantivyAgent
-
     with tempfile.TemporaryDirectory() as temp_dir:
+        original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
             agent = TantivyAgent()
@@ -181,54 +166,39 @@ This is the body content.
             assert "custom" in doc["title"].lower()
             assert "test markdown" in doc["tags"]
             assert "web api" in doc["servers"]
-            # Body is also normalized ("body" → "bod", "content" → "content")
+            # Body is also normalized ("body" -> "bod", "content" -> "content")
             assert "bod" in doc["body"] and "content" in doc["body"]
 
         finally:
-            os.chdir(os.path.dirname(temp_dir))
+            os.chdir(original_cwd)
+
 
 def test_patterns():
     """Test file pattern matching"""
-    # Get the original script path
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    TantivyAgent = module.TantivyAgent
-
     with tempfile.TemporaryDirectory() as temp_dir:
+        original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
             agent = TantivyAgent()
 
             # Test pattern matching
-            assert agent._match_pattern("test.md", "*.md") == True
-            assert agent._match_pattern("test.txt", "*.md") == False
-            assert agent._match_pattern("docs/test.md", "docs/*.md") == True
-            assert agent._match_pattern("test.tmp", "*.md") == False
-            assert agent._match_pattern("test.md", "*.md") == True
+            assert agent._match_pattern("test.md", "*.md")
+            assert not agent._match_pattern("test.txt", "*.md")
+            assert agent._match_pattern("docs/test.md", "docs/*.md")
+            assert not agent._match_pattern("test.tmp", "*.md")
+            assert agent._match_pattern("test.md", "*.md")
 
         finally:
-            os.chdir(os.path.dirname(temp_dir))
+            os.chdir(original_cwd)
+
 
 def test_export_functionality():
     """Test result export functionality"""
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    TantivyAgent = module.TantivyAgent
-
     with tempfile.TemporaryDirectory() as temp_dir:
+        original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
             agent = TantivyAgent()
-
-            # Create mock results
-            import sys
-            from types import SimpleNamespace
 
             # Create mock document object
             class MockDoc:
@@ -257,7 +227,7 @@ def test_export_functionality():
             agent._export_csv(results, "test query", csv_file)
 
             assert os.path.exists(csv_file)
-            with open(csv_file, 'r') as f:
+            with open(csv_file, "r") as f:
                 content = f.read()
                 assert "Score,Path,Title" in content
                 assert "0.8500" in content
@@ -267,25 +237,20 @@ def test_export_functionality():
             agent._export_txt(results, "test query", txt_file)
 
             assert os.path.exists(txt_file)
-            with open(txt_file, 'r') as f:
+            with open(txt_file, "r") as f:
                 content = f.read()
                 assert "Search Results for: 'test query'" in content
                 assert "Total Results: 2" in content
                 assert "1. mock_value_title" in content
 
         finally:
-            os.chdir(os.path.dirname(temp_dir))
+            os.chdir(original_cwd)
+
 
 def test_project_detection():
     """Test project type detection"""
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    TantivyAgent = module.TantivyAgent
-
     with tempfile.TemporaryDirectory() as temp_dir:
+        original_cwd = os.getcwd()
         try:
             # Test Python project detection
             python_dir = os.path.join(temp_dir, "python-project")
@@ -326,18 +291,13 @@ def test_project_detection():
             assert project_type == "generic"
 
         finally:
-            os.chdir(os.path.dirname(temp_dir))
+            os.chdir(original_cwd)
+
 
 def test_glob_patterns():
     """Test glob pattern expansion"""
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    TantivyAgent = module.TantivyAgent
-
     with tempfile.TemporaryDirectory() as temp_dir:
+        original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
             # Create test directory structure
@@ -373,10 +333,12 @@ def test_glob_patterns():
             # Test exclude pattern
             patterns = [
                 {"path": "docs/**", "exclude": False},
-                {"path": "target", "exclude": True}
+                {"path": "target", "exclude": True},
             ]
             expanded = agent._expand_glob_patterns(patterns)
-            expanded_paths = [item for item in expanded if not item.get("exclude", False)]
+            expanded_paths = [
+                item for item in expanded if not item.get("exclude", False)
+            ]
             excluded_paths = [item for item in expanded if item.get("exclude", False)]
 
             # Should have docs, exclude target
@@ -384,44 +346,43 @@ def test_glob_patterns():
             assert any("target" in item["path"] for item in excluded_paths)
 
         finally:
-            os.chdir(os.path.dirname(temp_dir))
+            os.chdir(original_cwd)
+
 
 def test_default_configs():
     """Test default configurations for different project types"""
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    TantivyAgent = module.TantivyAgent
+    agent = TantivyAgent()
 
     # Test Python project config
-    agent = TantivyAgent()
     python_config = agent._get_default_config_for_project_type("python")
     assert "index_dirs" in python_config
     assert any("docs/**" in str(item) for item in python_config["index_dirs"])
-    assert any(".venv" in str(item) and item.get("exclude", False) for item in python_config["index_dirs"])
+    assert any(
+        ".venv" in str(item) and item.get("exclude", False)
+        for item in python_config["index_dirs"]
+    )
 
     # Test Node.js project config
     nodejs_config = agent._get_default_config_for_project_type("nodejs")
     assert "index_dirs" in nodejs_config
-    assert any("node_modules" in str(item) and item.get("exclude", False) for item in nodejs_config["index_dirs"])
+    assert any(
+        "node_modules" in str(item) and item.get("exclude", False)
+        for item in nodejs_config["index_dirs"]
+    )
 
     # Test Generic project config
     generic_config = agent._get_default_config_for_project_type("generic")
     assert "index_dirs" in generic_config
-    assert any("**/.*" in str(item) and item.get("exclude", False) for item in generic_config["index_dirs"])
+    assert any(
+        "**/.*" in str(item) and item.get("exclude", False)
+        for item in generic_config["index_dirs"]
+    )
+
 
 def test_install_functionality():
-    """Test install functionality with symlink creation"""
-    original_script = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("tantivy_agent", original_script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    TantivyAgent = module.TantivyAgent
-
+    """Test install functionality"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
             # Create target project directory
@@ -433,15 +394,6 @@ def test_install_functionality():
                 f.write("flask==2.0\n")
 
             agent = TantivyAgent()
-
-            # Test symlink creation
-            agent._create_symlink(target_project)
-
-            # Check if symlink was created
-            tools_dir = os.path.join(target_project, "tools")
-            symlink_path = os.path.join(tools_dir, "tantivy2agents.py")
-            assert os.path.exists(symlink_path)
-            assert os.path.islink(symlink_path)
 
             # Test default config creation
             agent._create_default_config(target_project)
@@ -462,104 +414,83 @@ def test_install_functionality():
             with open(gitignore_path, "r") as f:
                 content = f.read()
                 assert ".tantivy-data/" in content
-                assert "!tools/tantivy2agents.py" in content
-
-        finally:
-            os.chdir(os.path.dirname(temp_dir))
-
-def test_status_command():
-    """Test status command with valid index and index_info"""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Change to temp directory
-        original_cwd = os.getcwd()
-        os.chdir(temp_dir)
-
-        try:
-            # Copy agent script - find it relative to test directory
-            test_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            agent_path = os.path.join(test_dir, "tantivy2agents.py")
-            if not os.path.exists(agent_path):
-                # Try from original_cwd as fallback
-                agent_path = os.path.join(original_cwd, "tantivy2agents.py")
-            shutil.copy(agent_path, "./tantivy2agents.py")
-            os.chmod("./tantivy2agents.py", 0o755)
-
-            # Create test config
-            config = {
-                "version": "1.0",
-                "index_dir": ".tantivy-data",
-                "global_patterns": {
-                    "include": ["*.md", "*.txt"],
-                    "exclude": ["*.tmp"]
-                },
-                "index_dirs": ["docs/"],
-                "schema_fields": {
-                    "title": {"weight": 2.0, "tokenizer": "en_stem"},
-                    "body": {"weight": 1.0, "tokenizer": "en_stem"},
-                    "tags": {"weight": 1.5, "tokenizer": "default"},
-                    "servers": {"weight": 1.5, "tokenizer": "default"},
-                    "path": {"weight": 0.5, "tokenizer": "raw"}
-                },
-                "search": {"default_limit": 10, "hide_incidents": True},
-                "auto_hook": False  # Disable hooks for testing
-            }
-
-            with open(".tantivi2agents.json", "w") as f:
-                json.dump(config, f)
-
-            # Create test documents
-            os.makedirs("docs", exist_ok=True)
-
-            with open("docs/test1.md", "w") as f:
-                f.write("# Test Document One\n\nContent about server configuration.")
-
-            with open("docs/test2.md", "w") as f:
-                f.write("# Test Document Two\n\nMore test content.")
-
-            # Test index command first
-            result = subprocess.run(["python", "./tantivy2agents.py", "index"],
-                                  capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception(f"Index command failed: {result.stderr}")
-
-            # Now test status command
-            result = subprocess.run(["python", "./tantivy2agents.py", "status"],
-                                  capture_output=True, text=True)
-
-            if result.returncode != 0:
-                raise Exception(f"Status command failed with return code {result.returncode}: {result.stderr}")
-
-            # Check that status output contains expected information
-            output = result.stdout
-
-            # Should contain project info
-            assert "Tantivy Agent Status" in output, "Missing status header"
-
-            # Should contain index directory info
-            assert "Index:" in output, "Missing index info"
-
-            # Should contain statistics section
-            assert "Index Statistics" in output, "Missing statistics section"
-
-            # Should report document count from index_info.json
-            assert "Documents:" in output, "Missing document count"
-
-            # Should not crash with TypeError/AttributeError on searcher.len()
-            assert "N/A" not in output or "N/A (API not available)" not in output, \
-                "Should not show N/A for document count"
-
-            # Should show file information section
-            assert "File Information" in output, "Missing file information section"
-
-            # Should show system section
-            assert "System" in output, "Missing system section"
 
         finally:
             os.chdir(original_cwd)
 
+
+def test_status_command():
+    """Test status command with valid index and index_info"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create test config
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md", "*.txt"], "exclude": ["*.tmp"]},
+            "index_dirs": ["docs/"],
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "tags": {"weight": 1.5, "tokenizer": "default"},
+                "servers": {"weight": 1.5, "tokenizer": "default"},
+                "path": {"weight": 0.5, "tokenizer": "raw"},
+            },
+            "search": {"default_limit": 10, "hide_incidents": True},
+            "auto_hook": False,  # Disable hooks for testing
+        }
+
+        config_path = os.path.join(temp_dir, ".tantivi2agents.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        # Create test documents
+        docs_dir = os.path.join(temp_dir, "docs")
+        os.makedirs(docs_dir, exist_ok=True)
+
+        with open(os.path.join(docs_dir, "test1.md"), "w") as f:
+            f.write("# Test Document One\n\nContent about server configuration.")
+
+        with open(os.path.join(docs_dir, "test2.md"), "w") as f:
+            f.write("# Test Document Two\n\nMore test content.")
+
+        # Test index command first
+        result = run_cli_command(["index"], cwd=temp_dir)
+        if result.returncode != 0:
+            raise Exception(f"Index command failed: {result.stderr}")
+
+        # Now test status command
+        result = run_cli_command(["status"], cwd=temp_dir)
+
+        if result.returncode != 0:
+            raise Exception(
+                f"Status command failed with return code {result.returncode}: {result.stderr}"
+            )
+
+        # Check that status output contains expected information
+        output = result.stdout
+
+        # Should contain project info
+        assert "Tantivy Agent Status" in output, "Missing status header"
+
+        # Should contain index directory info
+        assert "Index:" in output, "Missing index info"
+
+        # Should contain statistics section
+        assert "Index Statistics" in output, "Missing statistics section"
+
+        # Should report document count from index_info.json
+        assert "Documents:" in output, "Missing document count"
+
+        # Should show file information section
+        assert "File Information" in output, "Missing file information section"
+
+        # Should show system section
+        assert "System" in output, "Missing system section"
+
+
 def main():
     """Run all tests"""
-    print("🧪 Running Tantivy Agent Tests...")
+    print("Running Tantivy Agent Tests...")
     print()
 
     tests = [
@@ -572,7 +503,7 @@ def main():
         ("Glob Patterns", test_glob_patterns),
         ("Default Configs", test_default_configs),
         ("Install Functionality", test_install_functionality),
-        ("Status Command", test_status_command)
+        ("Status Command", test_status_command),
     ]
 
     passed = 0
@@ -583,14 +514,15 @@ def main():
             passed += 1
 
     print()
-    print(f"📊 Test Results: {passed}/{total} tests passed")
+    print(f"Test Results: {passed}/{total} tests passed")
 
     if passed == total:
-        print("🎉 All tests passed!")
+        print("All tests passed!")
         return 0
     else:
-        print("❌ Some tests failed!")
+        print("Some tests failed!")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

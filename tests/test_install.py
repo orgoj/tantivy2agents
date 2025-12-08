@@ -6,25 +6,16 @@ Comprehensive tests for Tantivy Agent install functionality
 import os
 import sys
 import json
-import tempfile
 import shutil
-from pathlib import Path
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+# Add src to path for direct imports
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
-def import_tantivy_agent():
-    """Import the TantivyAgent class"""
-    import importlib.util
-    script_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tantivy2agents.py")
-    spec = importlib.util.spec_from_file_location("tantivy_agent", script_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.TantivyAgent
+from tantivy2agents import TantivyAgent
+
 
 def test_project_detection():
     """Test project type detection for various project types"""
-    TantivyAgent = import_tantivy_agent()
     test_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tmp")
     os.makedirs(test_dir, exist_ok=True)
 
@@ -61,7 +52,7 @@ def test_project_detection():
     os.makedirs(java_dir, exist_ok=True)
 
     with open(os.path.join(java_dir, "pom.xml"), "w") as f:
-        f.write('<project><modelVersion>4.0.0</modelVersion></project>\n')
+        f.write("<project><modelVersion>4.0.0</modelVersion></project>\n")
     os.makedirs(os.path.join(java_dir, "src/main/java"), exist_ok=True)
 
     agent = TantivyAgent()
@@ -83,9 +74,9 @@ def test_project_detection():
 
     return results
 
+
 def test_default_configurations():
     """Test default configurations for different project types"""
-    TantivyAgent = import_tantivy_agent()
     results = []
 
     agent = TantivyAgent()
@@ -93,12 +84,19 @@ def test_default_configurations():
     # Test Python config
     python_config = agent._get_default_config_for_project_type("python")
     has_index_dirs = "index_dirs" in python_config
-    has_docs_recursive = any("docs/**" in str(item) for item in python_config["index_dirs"])
+    has_docs_recursive = any(
+        "docs/**" in str(item) for item in python_config["index_dirs"]
+    )
     has_exclude_venv = any(
         isinstance(item, dict) and item.get("path") == ".venv" and item.get("exclude")
         for item in python_config["index_dirs"]
     )
-    results.append(("Python config structure", has_index_dirs and has_docs_recursive and has_exclude_venv))
+    results.append(
+        (
+            "Python config structure",
+            has_index_dirs and has_docs_recursive and has_exclude_venv,
+        )
+    )
 
     # Test Node.js config
     nodejs_config = agent._get_default_config_for_project_type("nodejs")
@@ -118,9 +116,9 @@ def test_default_configurations():
 
     return results
 
+
 def test_glob_patterns():
     """Test glob pattern expansion"""
-    TantivyAgent = import_tantivy_agent()
     test_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tmp")
     os.makedirs(test_dir, exist_ok=True)
     results = []
@@ -154,7 +152,7 @@ def test_glob_patterns():
     # Test exclude pattern
     patterns = [
         {"path": "docs/**", "exclude": False},
-        {"path": "target", "exclude": True}
+        {"path": "target", "exclude": True},
     ]
     expanded = agent._expand_glob_patterns(patterns)
     included = [item for item in expanded if not item.get("exclude", False)]
@@ -165,9 +163,9 @@ def test_glob_patterns():
 
     return results
 
+
 def test_install_workflow():
     """Test complete install workflow"""
-    TantivyAgent = import_tantivy_agent()
     test_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tmp")
     os.makedirs(test_dir, exist_ok=True)
     results = []
@@ -185,12 +183,6 @@ def test_install_workflow():
 
     agent = TantivyAgent()
 
-    # Test symlink creation
-    agent._create_symlink(target_project)
-    symlink_path = os.path.join(target_project, "tools", "tantivy2agents.py")
-    symlink_exists = os.path.exists(symlink_path) and os.path.islink(symlink_path)
-    results.append(("Symlink creation", symlink_exists))
-
     # Test config creation
     agent._create_default_config(target_project)
     config_path = os.path.join(target_project, ".tantivi2agents.json")
@@ -202,7 +194,9 @@ def test_install_workflow():
             config = json.load(f)
             has_version = "version" in config
             has_index_dirs = "index_dirs" in config
-            results.append(("Config content validation", has_version and has_index_dirs))
+            results.append(
+                ("Config content validation", has_version and has_index_dirs)
+            )
 
     # Test gitignore setup
     agent._setup_gitignore(target_project)
@@ -214,8 +208,7 @@ def test_install_workflow():
         with open(gitignore_path, "r") as f:
             content = f.read()
             has_tantivy_data = ".tantivy-data/" in content
-            has_symlink_keep = "!tools/tantivy2agents.py" in content
-            results.append(("Gitignore content", has_tantivy_data and has_symlink_keep))
+            results.append(("Gitignore content", has_tantivy_data))
 
     # Test Claude hooks installation
     agent._install_claude_hooks(target_root=target_project)
@@ -226,14 +219,15 @@ def test_install_workflow():
     if claude_hooks_exist:
         with open(claude_config_path, "r") as f:
             content = f.read()
-            has_hooks = "PostToolUse" in content and "tantivy2agent" in content
+            has_hooks = "PostToolUse" in content and "tantivy2agents" in content
             results.append(("Claude hooks content", has_hooks))
 
     return results
 
+
 def run_all_tests():
     """Run all install-related tests"""
-    print("🧪 Running Tantivy Agent Install Tests...")
+    print("Running Tantivy Agent Install Tests...")
     print()
 
     all_results = []
@@ -243,27 +237,30 @@ def run_all_tests():
         ("Project Detection", test_project_detection),
         ("Default Configurations", test_default_configurations),
         ("Glob Patterns", test_glob_patterns),
-        ("Install Workflow", test_install_workflow)
+        ("Install Workflow", test_install_workflow),
     ]
 
     for suite_name, test_func in test_suites:
-        print(f"📋 {suite_name}:")
+        print(f"  {suite_name}:")
         try:
             results = test_func()
             suite_passed = True
             for test_name, passed in results:
-                status = "✅" if passed else "❌"
+                status = "  " if passed else "  "
                 print(f"  {status} {test_name}")
                 if not passed:
                     suite_passed = False
                 all_results.append((test_name, passed))
 
             if suite_passed:
-                print(f"✅ {suite_name} - PASSED")
+                print(f"  {suite_name} - PASSED")
             else:
-                print(f"❌ {suite_name} - FAILED")
+                print(f"  {suite_name} - FAILED")
         except Exception as e:
-            print(f"❌ {suite_name} - ERROR: {e}")
+            print(f"  {suite_name} - ERROR: {e}")
+            import traceback
+
+            traceback.print_exc()
             all_results.append((f"{suite_name} - Error", False))
         print()
 
@@ -272,14 +269,15 @@ def run_all_tests():
     passed = sum(1 for _, result in all_results if result)
     failed = total - passed
 
-    print(f"📊 Test Results: {passed}/{total} tests passed")
+    print(f"Test Results: {passed}/{total} tests passed")
 
     if failed == 0:
-        print("🎉 All install tests passed!")
+        print("All install tests passed!")
         return 0
     else:
-        print(f"❌ {failed} tests failed!")
+        print(f"{failed} tests failed!")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(run_all_tests())

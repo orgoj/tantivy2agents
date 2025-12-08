@@ -4,61 +4,77 @@ All-in-one solution for document indexing and search using Tantivy with flexible
 
 ## Features
 
-- **All-in-one script** - Single Python file with complete functionality
+- **Modern Python packaging** - Install with `uv` or `pip`, run with `uvx`
 - **Czech language support** - Built-in stemmer for Czech morphology (skloňování a časování)
 - **Flexible configuration** - JSON-based config with global and directory-specific patterns
 - **Automatic data management** - Data stored outside repository with auto .gitignore
 - **Claude Code integration** - Automatic hook installation for real-time index updates
 - **Incremental indexing** - Only reindex when files change
-- **Universal design** - Works in any project after linking
+- **Universal design** - Works in any project
 
 ## Quick Start
 
-### Automatic Installation (Recommended)
+### Using uvx (Recommended - No Installation)
 
-The Tantivy Agent can automatically install itself in any project:
+Run directly from git repository without installing:
+
+```bash
+# Run from git repo
+uvx --from git+https://github.com/orgoj/tantivi2agents tantivy2agents --help
+
+# Install in current project
+uvx --from git+https://github.com/orgoj/tantivi2agents tantivy2agents install
+
+# Create index
+uvx --from git+https://github.com/orgoj/tantivi2agents tantivy2agents index
+
+# Search
+uvx --from git+https://github.com/orgoj/tantivi2agents tantivy2agents search "your query"
+```
+
+### Installing with uv/pip
+
+```bash
+# Install from git
+uv pip install git+https://github.com/orgoj/tantivi2agents
+
+# Or with pip
+pip install git+https://github.com/orgoj/tantivi2agents
+
+# Now use directly
+tantivy2agents install
+tantivy2agents index
+tantivy2agents search "your query"
+```
+
+### Development Setup
+
+```bash
+# Clone repository
+git clone https://github.com/orgoj/tantivi2agents
+cd tantivi2agents
+
+# Install with uv
+uv sync
+
+# Run commands
+uv run tantivy2agents --help
+uv run tantivy2agents install
+uv run tantivy2agents index
+```
+
+### Basic Usage
 
 ```bash
 # Install in current project (auto-detects project type)
-python /path/to/tantivi2agents/tantivy2agents.py install
+tantivy2agents install
 
-# Install in specific target directory
-python /path/to/tantivi2agents/tantivy2agents.py install --target /path/to/project
+# Create index
+tantivy2agents index
 
-# Install without creating default config
-python /path/to/tantivi2agents/tantivy2agents.py install --no-config
-```
-
-### Manual Installation
-
-#### 1. Link to Your Project (Optional)
-
-```bash
-# In your project directory - create your preferred command name
-ln -s /path/to/tantivi2agents/tantivy2agents.py ./tools/tantivy2agent
-# or any other name you prefer
-```
-
-#### 2. Create Configuration
-
-Copy the example config to your project root:
-
-```bash
-cp /path/to/tantivi2agents/examples/.tantivi2agents.json ./
-```
-
-#### 3. Install Hooks and Create Index
-
-```bash
-./tools/tantivy2agent install
-./tools/tantivy2agent index
-```
-
-#### 4. Search Your Documents
-
-```bash
-./tools/tantivy2agent search "your query"
-./tools/tantivy2agent search "server configuration" --limit 5
+# Search documents
+tantivy2agents search "your query"
+tantivy2agents search "server configuration" --limit 5
 ```
 
 ## Configuration
@@ -184,39 +200,39 @@ The `.tantivi2agents.json` file controls all behavior:
 
 ```bash
 # Create or update index
-./tools/tantivy2agent index
-./tools/tantivy2agent index --force  # Force rebuild
-./tools/tantivy2agent index --dirs   # Show directories to be processed
-./tools/tantivy2agent index --files  # Show files to be processed
+tantivy2agents index
+tantivy2agents index --force  # Force rebuild
+tantivy2agents index --dirs   # Show directories to be processed
+tantivy2agents index --files  # Show files to be processed
 
 # Search documents
-./tools/tantivy2agent search "query"
-./tools/tantivy2agent search "query" --limit 5
+tantivy2agents search "query"
+tantivy2agents search "query" --limit 5
 
 # Export search results
-./tools/tantivy2agent search "server" --format json --output results.json
-./tools/tantivy2agent search "config" --format csv -o analysis.csv
+tantivy2agents search "server" --format json --output results.json
+tantivy2agents search "config" --format csv -o analysis.csv
 
 # Clear index
-./tools/tantivy2agent clear
+tantivy2agents clear
 
 # Install Tantivy Agent (smart auto-configuration)
-./tools/tantivy2agent install
+tantivy2agents install
 
 # Install in specific target directory
-python /path/to/tantivy2agents.py install --target /path/to/project
+tantivy2agents install --target /path/to/project
 
 # Install without creating default config
-python /path/to/tantivy2agents.py install --no-config
-
-# Setup bash script for system-wide access
-python /path/to/tantivy2agents.py setup
+tantivy2agents install --no-config
 
 # Show index status and statistics
-python tantivy2agents.py status
+tantivy2agents status
+
+# Analyze file encodings
+tantivy2agents encoding-info
 
 # Hook command (used automatically by Claude)
-./tools/tantivy2agent hook-clear
+tantivy2agents hook-clear
 ```
 
 ## Claude Code Integration
@@ -232,7 +248,7 @@ When `auto_hook` is enabled, the agent automatically installs hooks in `.claude/
         "hooks": [
           {
             "type": "command",
-            "command": "./tools/tantivy2agents.py hook-clear"
+            "command": "tantivy2agents hook-clear"
           }
         ]
       }
@@ -308,14 +324,14 @@ Tantivy Agent includes built-in support for Czech language search with automatic
 **Example:**
 ```bash
 # All these queries find the same documents:
-./tools/tantivy2agent search "dokončit"      # infinitive
-./tools/tantivy2agent search "dokončil"      # past tense
-./tools/tantivy2agent search "dokončeno"     # passive
+tantivy2agents search "dokončit"      # infinitive
+tantivy2agents search "dokončil"      # past tense
+tantivy2agents search "dokončeno"     # passive
 
 # Works for nouns too:
-./tools/tantivy2agent search "úkol"          # singular
-./tools/tantivy2agent search "úkoly"         # plural
-./tools/tantivy2agent search "úkolů"         # genitive plural
+tantivy2agents search "úkol"          # singular
+tantivy2agents search "úkoly"         # plural
+tantivy2agents search "úkolů"         # genitive plural
 ```
 
 **Note:** This stemmer is optimized for Czech but also works reasonably well for other Slavic languages with similar morphology.
@@ -325,7 +341,7 @@ Tantivy Agent includes built-in support for Czech language search with automatic
 Searches across all configured fields with field-specific weights:
 
 ```bash
-./tools/tantivy2agent search "server configuration"
+tantivy2agents search "server configuration"
 ```
 
 ### Export Search Results
@@ -334,16 +350,16 @@ Export search results in multiple formats:
 
 ```bash
 # JSON export (structured data)
-./tools/tantivy2agent search "server" --format json --output results.json
+tantivy2agents search "server" --format json --output results.json
 
 # CSV export (spreadsheet compatible)
-./tools/tantivy2agent search "config" --format csv -o search_results.csv
+tantivy2agents search "config" --format csv -o search_results.csv
 
 # Text export (human readable)
-./tools/tantivy2agent search "guide" --format txt --output guide_results.txt
+tantivy2agents search "guide" --format txt --output guide_results.txt
 
 # Export to terminal (no file specified)
-./tools/tantivy2agent search "server" --format json
+tantivy2agents search "server" --format json
 ```
 
 ### Export Formats
@@ -413,66 +429,35 @@ The agent tracks file modification times and only rebuilds the index when:
 
 | Command | Description |
 |---------|-------------|
-| `./tools/tantivy2agent index` | Create or update document index (use --dirs/--files for diagnostics) |
-| `./tools/tantivy2agent search "query"` | Search in indexed documents |
-| `./tools/tantivy2agent clear` | Clear the index |
-| `./tools/tantivy2agent install` | Install Tantivy Agent with auto-configuration |
-| `./tools/tantivy2agent hook-clear` | Clear index (used by Claude hooks) |
-| `./tools/tantivy2agent encoding-info` | Analyze file encodings in project |
-| `python tantivy2agents.py setup` | Create bash script in ~/bin for system-wide access |
-| `python tantivy2agents.py status` | Display index statistics and status information |
+| `tantivy2agents index` | Create or update document index (use --dirs/--files for diagnostics) |
+| `tantivy2agents search "query"` | Search in indexed documents |
+| `tantivy2agents clear` | Clear the index |
+| `tantivy2agents install` | Install Tantivy Agent with auto-configuration |
+| `tantivy2agents hook-clear` | Clear index (used by Claude hooks) |
+| `tantivy2agents encoding-info` | Analyze file encodings in project |
+| `tantivy2agents status` | Display index statistics and status information |
 
-## System-wide Setup
+## System-wide Installation
 
-### Setup Command
-
-The `setup` command creates a bash script in your `~/bin/` directory for system-wide access to Tantivy Agent:
+With `uv` or `pip`, you can install tantivy2agents system-wide:
 
 ```bash
-# Run from the tantivy2agents project directory
-python tantivy2agents.py setup
-```
+# Using uv (recommended)
+uv pip install git+https://github.com/orgoj/tantivi2agents
 
-### What Setup Does
+# Using pip
+pip install git+https://github.com/orgoj/tantivi2agents
 
-The setup command automatically:
-
-1. **Creates Virtual Environment**
-   - Creates `.venv/` directory in the project folder
-   - Installs all required dependencies from `requirements.txt`
-   - Uses isolated Python environment to avoid conflicts
-
-2. **Creates Bash Script**
-   - Installs `tantivy2agents` script in `~/bin/`
-   - Script automatically uses the virtual environment's Python
-   - Makes the script executable
-
-3. **PATH Configuration**
-   - Checks if `~/bin/` is in your PATH
-   - Provides instructions if `~/bin/` is not accessible
-
-### After Setup
-
-Once setup is complete, you can use Tantivy Agent from anywhere:
-
-```bash
-# From any directory
+# Now use from anywhere
 tantivy2agents index
 tantivy2agents search "my query"
 tantivy2agents install
 ```
 
-### Manual PATH Setup
-
-If `~/bin/` is not in your PATH, add this line to your `~/.bashrc` or `~/.zshrc`:
+Or use `uvx` to run without installing:
 
 ```bash
-export PATH="$PATH:~/bin"
-```
-
-Then restart your terminal or run:
-```bash
-source ~/.bashrc  # or source ~/.zshrc
+uvx --from git+https://github.com/orgoj/tantivi2agents tantivy2agents search "query"
 ```
 
 ## Status Command
@@ -480,8 +465,7 @@ source ~/.bashrc  # or source ~/.zshrc
 The `status` command provides detailed information about your index and system status:
 
 ```bash
-# From the tantivy2agents project directory
-python tantivy2agents.py status
+tantivy2agents status
 ```
 
 ### What Status Shows
@@ -588,10 +572,7 @@ Analyze file encodings in your project:
 
 ```bash
 # Show encoding information for all files
-./tools/tantivy2agent encoding-info
-
-# See which files use non-UTF-8 encodings
-./tools/tantivy2agent encoding-info
+tantivy2agents encoding-info
 ```
 
 The `encoding-info` command shows:
@@ -610,12 +591,19 @@ Common legacy encodings supported:
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - Dependencies: `PyYAML`, `tantivy`, `charset-normalizer`
 
-Install with:
+Install with uv (recommended):
 ```bash
-pip install -r requirements.txt
+uv pip install git+https://github.com/orgoj/tantivi2agents
+```
+
+Or for development:
+```bash
+git clone https://github.com/orgoj/tantivi2agents
+cd tantivi2agents
+uv sync
 ```
 
 ## Troubleshooting

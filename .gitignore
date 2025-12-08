@@ -8,3 +8,11 @@ tmp/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Virtual environment
+.venv/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/

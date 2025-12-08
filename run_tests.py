@@ -7,13 +7,13 @@ import os
 import sys
 import subprocess
 
+
 def run_test_suite(test_file, suite_name):
     """Run a single test suite"""
     print(f"🧪 {suite_name}")
     print("=" * len(suite_name))
 
-    result = subprocess.run([sys.executable, test_file],
-                          capture_output=True, text=True)
+    result = subprocess.run([sys.executable, test_file], capture_output=True, text=True)
 
     print(result.stdout)
     if result.stderr:
@@ -23,6 +23,7 @@ def run_test_suite(test_file, suite_name):
     print()
     return result.returncode == 0
 
+
 def main():
     """Run all test suites"""
     print("🧪 Tantivy Agent - Comprehensive Test Suite")
@@ -31,7 +32,7 @@ def main():
 
     test_suites = [
         ("tests/test_basic.py", "Basic Functionality"),
-        ("tests/test_install.py", "Install Functionality")
+        ("tests/test_install.py", "Install Functionality"),
     ]
 
     all_passed = True
@@ -53,6 +54,7 @@ def main():
     else:
         print("❌ Some test suites failed!")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

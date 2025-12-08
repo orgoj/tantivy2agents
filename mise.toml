@@ -1,6 +1,6 @@
 [tools]
 gitleaks = "latest"
-"npm:@anthropic-ai/claude-code" = "latest"
+claude = "latest"
 pre-commit = "latest"
 python = "3.13"
 sops = "latest"
@@ -11,4 +11,23 @@ yq = "4.47.2"
 _.python.venv = { path = ".venv", create = true, uv_create_args = ['--seed'] }
 
 [tasks.install]
-run="pip install -r requirements.txt"
+run = """
+uv sync
+pre-commit install
+"""
+
+[tasks.reinstall-venv]
+description = "Reinstall the virtual environment"
+run = """
+#!/bin/bash -x
+rm -rf .venv
+mise install -q
+mise run install
+"""
+
+[tasks.test]
+run = "uv run python run_tests.py"
+
+[tasks.pre-commit]
+description = "Run pre-commit on all files"
+run = "pre-commit run --all-files"
