@@ -54,14 +54,31 @@ tantivy2agents search "your query"
 git clone https://github.com/orgoj/tantivi2agents
 cd tantivi2agents
 
-# Install with uv
-uv sync
+# Setup development environment
+mise run install   # or: uv sync && pre-commit install
 
-# Run commands
+# Run in development mode (uses local code)
 uv run tantivy2agents --help
-uv run tantivy2agents install
 uv run tantivy2agents index
 ```
+
+### Install Stable Version for User
+
+Install current version as a global command (isolated environment via `uv tool`):
+
+```bash
+# From cloned repository
+cd tantivi2agents
+mise run install-user
+
+# Or manually
+uv tool install --reinstall --force .
+
+# Now available globally:
+tantivy2agents --help
+```
+
+To update after code changes, run `mise run install-user` again.
 
 ### Basic Usage
 

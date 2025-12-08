@@ -31,3 +31,7 @@ run = "uv run python run_tests.py"
 [tasks.pre-commit]
 description = "Run pre-commit on all files"
 run = "pre-commit run --all-files"
+
+[tasks.install-user]
+description = "Install/update current version for user (stable, non-editable)"
+run = "uv tool install --reinstall --force ."
