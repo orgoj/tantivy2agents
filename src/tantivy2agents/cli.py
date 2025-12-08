@@ -13,16 +13,31 @@ def main():
         description="Universal Tantivy Agent - Document indexing and search",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Commands:
+  install        Auto-detect project type and create config (recommended first step)
+  index          Build or update the search index
+  search         Search indexed documents
+  clear          Clear the search index
+  status         Show index statistics
+  config-example Show example configuration with explanations
+  encoding-info  Analyze file encodings in project
+  hook-clear     Mark index as outdated (used by Claude hooks)
+
 Examples:
-  tantivy2agents index
-  tantivy2agents search "my query"
-  tantivy2agents search "my query" --limit 5
-  tantivy2agents search "server" --format json --output results.json
-  tantivy2agents search "config" --format csv -o search_results.csv
-  tantivy2agents clear
-  tantivy2agents install
-  tantivy2agents install --target /path/to/project
-  tantivy2agents install --target ../my-project --no-config
+  tantivy2agents install                    # Setup in current project
+  tantivy2agents install --target ../proj   # Setup in another project
+  tantivy2agents index                      # Build index
+  tantivy2agents index --force              # Rebuild from scratch
+  tantivy2agents search "my query"          # Search
+  tantivy2agents search "api" --limit 5     # Limit results
+  tantivy2agents search "config" -f json    # Export as JSON
+  tantivy2agents config-example             # Show config template
+  tantivy2agents status                     # Show index info
+
+Configuration:
+  Config file: .tantivi2agents.json (in project root)
+  Run 'tantivy2agents config-example' to see full config template with comments.
+  Run 'tantivy2agents install' to auto-generate config for your project type.
         """,
     )
 
@@ -37,6 +52,7 @@ Examples:
             "encoding-info",
             "setup",
             "status",
+            "config-example",
         ],
         help="Command to execute",
     )
@@ -112,6 +128,8 @@ Examples:
         agent.setup_command()
     elif args.command == "status":
         agent.status_command()
+    elif args.command == "config-example":
+        agent.config_example_command()
 
 
 if __name__ == "__main__":

@@ -1478,3 +1478,85 @@ class TantivyAgent:
             print(f"   Index status: Error checking: {e}")
 
         print()  # Empty line at end
+
+    def config_example_command(self) -> None:
+        """Print example configuration with explanations"""
+        example = """{
+  // Configuration file: .tantivi2agents.json
+  // Place in project root directory
+
+  "version": "1.0",
+
+  // Where to store the index (relative to project root)
+  "index_dir": ".tantivy-data",
+
+  // Global patterns applied to all files
+  "global_patterns": {
+    "include": ["*.md", "*.txt", "*.rst"],  // File types to index
+    "exclude": [                             // Files to skip
+      "*.tmp", "*~", "*.bak", "*.log",
+      "*.exe", "*.dll", "*.so",
+      "*.jpg", "*.png", "*.pdf"
+    ]
+  },
+
+  // Directories to index (relative to project root)
+  // Use glob patterns like "src/**/*.md" for recursive matching
+  "index_dirs": [
+    ".",                                    // Current directory
+    "docs/**/*.md",                         // All .md files in docs/
+    {"path": ".git", "exclude": true},      // Exclude .git directory
+    {"path": "node_modules", "exclude": true},
+    {"path": ".venv", "exclude": true},
+    {"path": "target", "exclude": true}
+  ],
+
+  // Search field configuration with weights
+  "schema_fields": {
+    "title": {"weight": 2.0, "tokenizer": "en_stem"},   // Higher weight = more important
+    "body": {"weight": 1.0, "tokenizer": "en_stem"},
+    "tags": {"weight": 1.5, "tokenizer": "default"},
+    "path": {"weight": 0.5, "tokenizer": "raw"}
+  },
+
+  // Search settings
+  "search": {
+    "default_limit": 10,          // Default number of results
+    "hide_incidents": true,       // Hide incident docs by default
+    "show_incidents_on": ["incident", "emergency"]  // Keywords that show incidents
+  },
+
+  // Encoding detection settings
+  "encoding": {
+    "default_encoding": "utf-8",
+    "auto_detect": true,
+    "fallback_encodings": ["utf-8", "cp1252", "iso-8859-1", "cp1250"],
+    "detection_confidence_threshold": 0.7
+  },
+
+  // Automatically install Claude Code hooks
+  "auto_hook": true
+}
+
+QUICK START:
+  1. Run 'tantivy2agents install' in your project - auto-detects project type
+  2. Or create .tantivi2agents.json manually with above template
+  3. Run 'tantivy2agents index' to build the index
+  4. Run 'tantivy2agents search "your query"' to search
+
+PROJECT TYPE AUTO-DETECTION:
+  - Python: indexes docs/, src/**/*.md, *.md (excludes .venv, __pycache__)
+  - Node.js: indexes docs/, src/**/*.md (excludes node_modules)
+  - Java/Rust/Go: indexes docs/, src/**/*.md (excludes target/, build/)
+  - Generic: indexes docs/, *.md, *.txt
+
+MARKDOWN FRONTMATTER:
+  Files with YAML frontmatter are parsed for metadata:
+  ---
+  title: Document Title
+  tags: [api, guide]
+  servers: [prod, staging]
+  ---
+  Document content here...
+"""
+        print(example)
