@@ -68,7 +68,7 @@ This project follows **STRICT development rules** documented in `.claude/CLAUDE.
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd tantivi2agents
+   cd tantivy2agents
    ```
 
 2. **Create virtual environment**
@@ -326,14 +326,14 @@ See `CODE_REVIEW.md` Section 1 for detailed security guidelines.
 ## Project Structure
 
 ```
-tantivi2agents/
+tantivy2agents/
 ├── tantivy2agents.py       # Main application (monolithic, to be refactored)
 ├── tests/                  # Automated test suite
 │   ├── test_basic.py
 │   ├── test_install.py
 │   └── test_encoding.py
 ├── examples/               # Example configurations
-│   └── .tantivi2agents.json
+│   └── .tantivy2agents.json
 ├── .claude/               # Development rules
 │   ├── CLAUDE.md
 │   └── settings.json

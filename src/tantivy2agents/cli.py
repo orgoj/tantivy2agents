@@ -4,6 +4,7 @@ Tantivy Agent CLI - Command line interface for document indexing and search.
 
 import argparse
 
+from . import __version__
 from .agent import TantivyAgent
 
 
@@ -35,10 +36,16 @@ Examples:
   tantivy2agents status                     # Show index info
 
 Configuration:
-  Config file: .tantivi2agents.json (in project root)
+  Config file: .tantivy2agents.json (in project root)
   Run 'tantivy2agents config-example' to see full config template with comments.
   Run 'tantivy2agents install' to auto-generate config for your project type.
         """,
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"tantivy2agents {__version__}",
     )
 
     parser.add_argument(

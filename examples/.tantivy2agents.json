@@ -49,8 +49,14 @@
 
   "search": {
     "default_limit": 10,
-    "hide_incidents": true,
-    "show_incidents_on": ["incident", "emergency"]
+    "filters": [
+      {
+        "name": "incidents",
+        "paths": ["incidents/"],
+        "hidden": true,
+        "show_on_keywords": ["incident", "emergency"]
+      }
+    ]
   },
 
   "auto_hook": true

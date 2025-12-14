@@ -158,7 +158,7 @@ def test_file_specific_encoding_rules():
                 },
             }
 
-            with open(".tantivi2agents.json", "w") as f:
+            with open(".tantivy2agents.json", "w") as f:
                 json.dump(config, f)
 
             agent = TantivyAgent()
@@ -201,7 +201,7 @@ def test_fallback_encoding_mechanism():
                 },
             }
 
-            with open(".tantivi2agents.json", "w") as f:
+            with open(".tantivy2agents.json", "w") as f:
                 json.dump(config, f)
 
             agent = TantivyAgent()
@@ -247,7 +247,7 @@ def test_encoding_info_command():
                 "index_dirs": ["./"],
             }
 
-            with open(".tantivi2agents.json", "w") as f:
+            with open(".tantivy2agents.json", "w") as f:
                 json.dump(config, f)
 
             # Test encoding info command
@@ -294,7 +294,7 @@ def test_encoding_during_indexing():
                 "index_dirs": ["docs/"],
             }
 
-            with open(".tantivi2agents.json", "w") as f:
+            with open(".tantivy2agents.json", "w") as f:
                 json.dump(config, f)
 
             # Test indexing

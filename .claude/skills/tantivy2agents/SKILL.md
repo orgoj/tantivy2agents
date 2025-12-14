@@ -43,7 +43,7 @@ Complete guide for tantivy2agents CLI tool - a full-text search engine built on 
 tantivy2agents install
 
 # Creates:
-# - .tantivi2agents.json (configuration)
+# - .tantivy2agents.json (configuration)
 # - .tantivy-data/ (index directory)
 # - Updates .gitignore
 # - Optional: Claude Code hooks
@@ -84,7 +84,7 @@ tantivy2agents install --no-config        # Skip config creation
 
 **What it does:**
 - Auto-detects project type (Python, Node.js, Java, Rust, Go, Generic)
-- Creates `.tantivi2agents.json` configuration
+- Creates `.tantivy2agents.json` configuration
 - Adds `.tantivy-data/` to `.gitignore`
 - Optionally installs Claude Code hooks
 
@@ -175,7 +175,7 @@ tantivy2agents encoding-info
 
 Analyzes file encodings in project (UTF-8, cp1252, iso-8859-1, etc.)
 
-## Configuration File: .tantivi2agents.json
+## Configuration File: .tantivy2agents.json
 
 ### Minimal Configuration
 
@@ -429,7 +429,7 @@ Query: `"docker networking"` searches ALL fields.
 tantivy2agents install
 
 # 2. Review config, adjust if needed
-cat .tantivi2agents.json
+cat .tantivy2agents.json
 
 # 3. Build index
 tantivy2agents index
@@ -451,7 +451,7 @@ tantivy2agents search "your problem"
 ### After Config Changes
 
 ```bash
-# Modified .tantivi2agents.json
+# Modified .tantivy2agents.json
 # Rebuild index
 tantivy2agents index --force
 
@@ -558,7 +558,7 @@ tantivy2agents search "ssl certificate"
 tantivy2agents status  # Shows 75 documents
 
 # Review config
-cat .tantivi2agents.json
+cat .tantivy2agents.json
 # Problem: "index_dirs": ["."]  ← indexes everything
 
 # Fix: Be specific

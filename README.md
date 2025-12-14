@@ -20,26 +20,26 @@ Run directly from git repository without installing:
 
 ```bash
 # Run from git repo
-uvx --from git+https://github.com/orgoj/tantivi2agents tantivy2agents --help
+uvx --from git+https://github.com/orgoj/tantivy2agents tantivy2agents --help
 
 # Install in current project
-uvx --from git+https://github.com/orgoj/tantivi2agents tantivy2agents install
+uvx --from git+https://github.com/orgoj/tantivy2agents tantivy2agents install
 
 # Create index
-uvx --from git+https://github.com/orgoj/tantivi2agents tantivy2agents index
+uvx --from git+https://github.com/orgoj/tantivy2agents tantivy2agents index
 
 # Search
-uvx --from git+https://github.com/orgoj/tantivi2agents tantivy2agents search "your query"
+uvx --from git+https://github.com/orgoj/tantivy2agents tantivy2agents search "your query"
 ```
 
 ### Installing with uv/pip
 
 ```bash
 # Install from git
-uv pip install git+https://github.com/orgoj/tantivi2agents
+uv pip install git+https://github.com/orgoj/tantivy2agents
 
 # Or with pip
-pip install git+https://github.com/orgoj/tantivi2agents
+pip install git+https://github.com/orgoj/tantivy2agents
 
 # Now use directly
 tantivy2agents install
@@ -51,8 +51,8 @@ tantivy2agents search "your query"
 
 ```bash
 # Clone repository
-git clone https://github.com/orgoj/tantivi2agents
-cd tantivi2agents
+git clone https://github.com/orgoj/tantivy2agents
+cd tantivy2agents
 
 # Setup development environment
 mise run install   # or: uv sync && pre-commit install
@@ -68,7 +68,7 @@ Install current version as a global command (isolated environment via `uv tool`)
 
 ```bash
 # From cloned repository
-cd tantivi2agents
+cd tantivy2agents
 mise run install-user
 
 # Or manually
@@ -167,7 +167,7 @@ For most projects, the recommended configuration indexes all text files except c
 
 ### Advanced Configuration
 
-The `.tantivi2agents.json` file controls all behavior:
+The `.tantivy2agents.json` file controls all behavior:
 
 #### Basic Structure
 
@@ -210,8 +210,50 @@ The `.tantivi2agents.json` file controls all behavior:
 - **global_patterns**: Default file patterns for all directories
 - **index_dirs**: List of directories to index (string or object with custom patterns)
 - **schema_fields**: Tantivy field configuration with weights and tokenizers
-- **search**: Search behavior settings
+- **search**: Search behavior settings (see below)
 - **auto_hook**: Enable/disable automatic Claude hook installation
+
+### Search Filters
+
+Filter search results based on file paths. Hidden paths are excluded from results unless the query contains specific keywords.
+
+```json
+{
+  "search": {
+    "default_limit": 10,
+    "filters": [
+      {
+        "name": "incidents",
+        "paths": ["incidents/"],
+        "hidden": true,
+        "show_on_keywords": ["incident", "emergency"]
+      },
+      {
+        "name": "archive",
+        "paths": ["archive/", "old/"],
+        "hidden": true,
+        "show_on_keywords": ["archive", "old", "history"]
+      }
+    ]
+  }
+}
+```
+
+#### Filter Options
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `name` | string | No | - | Filter name (for debugging) |
+| `paths` | list | Yes | - | Path prefixes to match |
+| `hidden` | bool | No | `true` | Hide matching results by default |
+| `show_on_keywords` | list | No | `[]` | Keywords that reveal hidden results |
+
+#### Filter Behavior
+
+- Results from matching paths are hidden unless query contains a keyword
+- Empty `show_on_keywords` = always hidden (no way to reveal)
+- Keyword matching is case-insensitive
+- Multiple filters can match the same path - one keyword from any filter reveals result
 
 ## Commands
 
@@ -432,7 +474,7 @@ The agent automatically adds the data directory to `.gitignore`:
 
 ```
 # Tantivy Agent data
-.tantivi2agents/
+.tantivy2agents/
 ```
 
 ### Incremental Indexing
@@ -460,10 +502,10 @@ With `uv` or `pip`, you can install tantivy2agents system-wide:
 
 ```bash
 # Using uv (recommended)
-uv pip install git+https://github.com/orgoj/tantivi2agents
+uv pip install git+https://github.com/orgoj/tantivy2agents
 
 # Using pip
-pip install git+https://github.com/orgoj/tantivi2agents
+pip install git+https://github.com/orgoj/tantivy2agents
 
 # Now use from anywhere
 tantivy2agents index
@@ -474,7 +516,7 @@ tantivy2agents install
 Or use `uvx` to run without installing:
 
 ```bash
-uvx --from git+https://github.com/orgoj/tantivi2agents tantivy2agents search "query"
+uvx --from git+https://github.com/orgoj/tantivy2agents tantivy2agents search "query"
 ```
 
 ## Status Command
@@ -512,7 +554,7 @@ The status command displays comprehensive information about:
 📊 Tantivy Agent Status
 
 📁 Project: /home/user/myproject
-📄 Config: .tantivi2agents.json
+📄 Config: .tantivy2agents.json
 🗂️  Index: .tantivy-data/index/
 
 📈 Index Statistics
@@ -555,7 +597,7 @@ The Tantivy Agent supports automatic detection and conversion of different file 
 
 ### Encoding Configuration
 
-Add encoding settings to your `.tantivi2agents.json`:
+Add encoding settings to your `.tantivy2agents.json`:
 
 ```json
 {
@@ -613,13 +655,13 @@ Common legacy encodings supported:
 
 Install with uv (recommended):
 ```bash
-uv pip install git+https://github.com/orgoj/tantivi2agents
+uv pip install git+https://github.com/orgoj/tantivy2agents
 ```
 
 Or for development:
 ```bash
-git clone https://github.com/orgoj/tantivi2agents
-cd tantivi2agents
+git clone https://github.com/orgoj/tantivy2agents
+cd tantivy2agents
 uv sync
 ```
 

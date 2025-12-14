@@ -39,7 +39,7 @@ Welcome to the Tantivi2Agents documentation directory. This guide helps you find
 → Read [CONTRIBUTING.md](../CONTRIBUTING.md) then [.claude/CLAUDE.md](../.claude/CLAUDE.md)
 
 **...customize configuration**
-→ See [examples/.tantivi2agents.json](../examples/.tantivi2agents.json)
+→ See [examples/.tantivy2agents.json](../examples/.tantivy2agents.json)
 
 **...know what changed**
 → Read [CHANGELOG.md](../CHANGELOG.md)
@@ -108,7 +108,7 @@ Welcome to the Tantivi2Agents documentation directory. This guide helps you find
 
 ### examples/ (Configuration Examples)
 
-**File:** `.tantivi2agents.json`
+**File:** `.tantivy2agents.json`
 
 Example configuration showing:
 - Custom index directories

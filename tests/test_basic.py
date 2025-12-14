@@ -55,11 +55,11 @@ def test_basic_functionality():
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "hide_incidents": True},
+            "search": {"default_limit": 10, "filters": []},
             "auto_hook": False,  # Disable hooks for testing
         }
 
-        config_path = os.path.join(temp_dir, ".tantivi2agents.json")
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
         with open(config_path, "w") as f:
             json.dump(config, f)
 
@@ -397,7 +397,7 @@ def test_install_functionality():
 
             # Test default config creation
             agent._create_default_config(target_project)
-            config_path = os.path.join(target_project, ".tantivi2agents.json")
+            config_path = os.path.join(target_project, ".tantivy2agents.json")
             assert os.path.exists(config_path)
 
             with open(config_path, "r") as f:
@@ -435,11 +435,11 @@ def test_status_command():
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "hide_incidents": True},
+            "search": {"default_limit": 10, "filters": []},
             "auto_hook": False,  # Disable hooks for testing
         }
 
-        config_path = os.path.join(temp_dir, ".tantivi2agents.json")
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
         with open(config_path, "w") as f:
             json.dump(config, f)
 
@@ -506,7 +506,7 @@ def test_hook_clear_command():
             "auto_hook": False,
         }
 
-        config_path = os.path.join(temp_dir, ".tantivi2agents.json")
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
         with open(config_path, "w") as f:
             json.dump(config, f)
 
@@ -552,7 +552,7 @@ def test_setup_command():
             "auto_hook": False,
         }
 
-        config_path = os.path.join(temp_dir, ".tantivi2agents.json")
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
         with open(config_path, "w") as f:
             json.dump(config, f)
 
@@ -586,7 +586,7 @@ def test_cli_validation():
             "auto_hook": False,
         }
 
-        config_path = os.path.join(temp_dir, ".tantivi2agents.json")
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
         with open(config_path, "w") as f:
             json.dump(config, f)
 
@@ -604,6 +604,190 @@ def test_cli_validation():
         # Test invalid limit (too large)
         result = run_cli_command(["search", "test", "--limit", "99999"], cwd=temp_dir)
         assert result.returncode != 0, "Too large limit should fail"
+
+
+def test_search_filters():
+    """Test search filter functionality"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create config with filters
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md"], "exclude": []},
+            "index_dirs": ["docs/", "incidents/"],
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "tags": {"weight": 1.5, "tokenizer": "default"},
+                "servers": {"weight": 1.5, "tokenizer": "default"},
+                "path": {"weight": 0.5, "tokenizer": "raw"},
+            },
+            "search": {
+                "default_limit": 10,
+                "filters": [
+                    {
+                        "name": "incidents",
+                        "paths": ["incidents/"],
+                        "hidden": True,
+                        "show_on_keywords": ["incident", "emergency"],
+                    }
+                ],
+            },
+            "auto_hook": False,
+        }
+
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        # Initialize git repo (required for TantivyAgent)
+        subprocess.run(["git", "init"], cwd=temp_dir, capture_output=True)
+
+        # Create test documents
+        docs_dir = os.path.join(temp_dir, "docs")
+        incidents_dir = os.path.join(temp_dir, "incidents")
+        os.makedirs(docs_dir, exist_ok=True)
+        os.makedirs(incidents_dir, exist_ok=True)
+
+        with open(os.path.join(docs_dir, "guide.md"), "w") as f:
+            f.write("# Guide\n\nThis is a test guide.")
+
+        with open(os.path.join(incidents_dir, "outage.md"), "w") as f:
+            f.write("# Server Outage\n\nIncident report for server outage.")
+
+        # Test _get_search_filters
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            agent = TantivyAgent()
+            filters = agent._get_search_filters()
+            assert len(filters) == 1, "Should have one filter"
+            assert filters[0]["name"] == "incidents", "Filter name should be incidents"
+            assert filters[0]["paths"] == ["incidents/"], "Filter paths should match"
+
+            # Test _should_include_result - file in filtered path, no keyword
+            query_words = {"server", "configuration"}
+            result = agent._should_include_result(
+                "incidents/outage.md", query_words, filters
+            )
+            assert result is False, "Should hide incident without keyword"
+
+            # Test _should_include_result - file in filtered path, with keyword
+            query_words = {"incident", "server"}
+            result = agent._should_include_result(
+                "incidents/outage.md", query_words, filters
+            )
+            assert result is True, "Should show incident with keyword"
+
+            # Test _should_include_result - file not in filtered path
+            query_words = {"server"}
+            result = agent._should_include_result("docs/guide.md", query_words, filters)
+            assert result is True, "Should show non-filtered file"
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_search_filters_validation():
+    """Test search filter configuration validation"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Initialize git repo
+        subprocess.run(["git", "init"], cwd=temp_dir, capture_output=True)
+
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            # Test invalid filters type (not a list)
+            config = {
+                "version": "1.0",
+                "index_dir": ".tantivy-data",
+                "search": {"filters": "not a list"},
+            }
+            with open(config_path, "w") as f:
+                json.dump(config, f)
+
+            try:
+                TantivyAgent()
+                assert False, "Should raise ValueError for non-list filters"
+            except ValueError as e:
+                assert "must be a list" in str(e)
+
+            # Test missing paths field
+            config = {
+                "version": "1.0",
+                "index_dir": ".tantivy-data",
+                "search": {"filters": [{"name": "test"}]},
+            }
+            with open(config_path, "w") as f:
+                json.dump(config, f)
+
+            try:
+                TantivyAgent()
+                assert False, "Should raise ValueError for missing paths"
+            except ValueError as e:
+                assert "missing required 'paths'" in str(e)
+
+            # Test paths not a list
+            config = {
+                "version": "1.0",
+                "index_dir": ".tantivy-data",
+                "search": {"filters": [{"paths": "not a list"}]},
+            }
+            with open(config_path, "w") as f:
+                json.dump(config, f)
+
+            try:
+                TantivyAgent()
+                assert False, "Should raise ValueError for non-list paths"
+            except ValueError as e:
+                assert "paths must be a non-empty list" in str(e)
+
+            # Test empty paths list
+            config = {
+                "version": "1.0",
+                "index_dir": ".tantivy-data",
+                "search": {"filters": [{"paths": []}]},
+            }
+            with open(config_path, "w") as f:
+                json.dump(config, f)
+
+            try:
+                TantivyAgent()
+                assert False, "Should raise ValueError for empty paths"
+            except ValueError as e:
+                assert "paths must be a non-empty list" in str(e)
+        finally:
+            os.chdir(old_cwd)
+
+
+def test_search_filters_empty():
+    """Test that empty filters list allows all results"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "search": {"default_limit": 10, "filters": []},
+            "auto_hook": False,
+        }
+
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        subprocess.run(["git", "init"], cwd=temp_dir, capture_output=True)
+
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            agent = TantivyAgent()
+            filters = agent._get_search_filters()
+            assert filters == [], "Should return empty list"
+
+            # With no filters, _should_include_result should always return True
+            result = agent._should_include_result("any/path.md", {"query"}, filters)
+            assert result is True, "Should include all results with no filters"
+        finally:
+            os.chdir(old_cwd)
 
 
 def main():
@@ -625,6 +809,9 @@ def main():
         ("Hook Clear Command", test_hook_clear_command),
         ("Setup Command", test_setup_command),
         ("CLI Validation", test_cli_validation),
+        ("Search Filters", test_search_filters),
+        ("Search Filters Validation", test_search_filters_validation),
+        ("Search Filters Empty", test_search_filters_empty),
     ]
 
     passed = 0

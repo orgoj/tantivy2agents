@@ -185,7 +185,7 @@ def test_install_workflow():
 
     # Test config creation
     agent._create_default_config(target_project)
-    config_path = os.path.join(target_project, ".tantivi2agents.json")
+    config_path = os.path.join(target_project, ".tantivy2agents.json")
     config_exists = os.path.exists(config_path)
     results.append(("Config file creation", config_exists))
 

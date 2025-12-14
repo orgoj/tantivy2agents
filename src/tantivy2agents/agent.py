@@ -56,7 +56,7 @@ class TantivyAgent:
         self._setup_logging()
         self.project_root = self._find_project_root()
         self.config_path = config_path or os.path.join(
-            self.project_root, ".tantivi2agents.json"
+            self.project_root, ".tantivy2agents.json"
         )
         self.config = self._load_config()
 
@@ -140,7 +140,7 @@ class TantivyAgent:
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "hide_incidents": True},
+            "search": {"default_limit": 10, "filters": []},
             "encoding": {
                 "default_encoding": "utf-8",
                 "auto_detect": True,
@@ -180,12 +180,43 @@ class TantivyAgent:
                     user_config = json.load(f)
                 # Merge with defaults
                 config = {**default_config, **user_config}
+                self._validate_search_filters(config)
                 return config
             except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
                 logger.warning("Error loading config: %s", e)
                 logger.warning("Using default configuration.")
 
         return default_config
+
+    def _validate_search_filters(self, config: dict) -> None:
+        """Validate search filter configuration.
+
+        Raises ValueError for invalid configuration.
+        """
+        search_config = config.get("search", {})
+        filters = search_config.get("filters")
+
+        if filters is None:
+            return  # No filters configured
+
+        if not isinstance(filters, list):
+            raise ValueError("search.filters must be a list")
+
+        for i, f in enumerate(filters):
+            if not isinstance(f, dict):
+                raise ValueError(f"search.filters[{i}] must be a dict")
+
+            # Required: paths
+            if "paths" not in f:
+                raise ValueError(f"search.filters[{i}] missing required 'paths' field")
+
+            if not isinstance(f["paths"], list) or not f["paths"]:
+                raise ValueError(f"search.filters[{i}].paths must be a non-empty list")
+
+            # Validate show_on_keywords if present
+            keywords = f.get("show_on_keywords")
+            if keywords is not None and not isinstance(keywords, list):
+                raise ValueError(f"search.filters[{i}].show_on_keywords must be a list")
 
     def _ensure_data_dir(self):
         """Ensure data directory exists and is in .gitignore"""
@@ -294,7 +325,7 @@ class TantivyAgent:
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "hide_incidents": True},
+            "search": {"default_limit": 10, "filters": []},
             "auto_hook": True,
         }
 
@@ -1042,24 +1073,76 @@ class TantivyAgent:
             if output_file:
                 file_handle.close()
 
+    def _get_search_filters(self) -> list:
+        """Get search filters from configuration.
+
+        Returns list of filter dicts with keys: name, paths, hidden, show_on_keywords.
+        Keywords are pre-lowercased for efficient matching.
+        """
+        search_config = self.config.get("search", {})
+        filters = search_config.get("filters", [])
+
+        # Pre-lowercase keywords for efficient matching
+        for f in filters:
+            if "show_on_keywords" in f:
+                f["_keywords_lower"] = [kw.lower() for kw in f["show_on_keywords"]]
+
+        return filters
+
+    def _should_include_result(
+        self, file_path: str, query_words: set, filters: list
+    ) -> bool:
+        """Check if result should be included based on filters.
+
+        Returns True if result should be shown, False if filtered out.
+
+        Logic:
+        1. For each filter with hidden=true:
+           a. Check if file_path starts with any of the filter's paths
+           b. If matches and query contains NO keyword -> hide
+           c. If matches and query contains keyword -> show
+        2. If no filter matches -> show
+        """
+        for filter_config in filters:
+            if not filter_config.get("hidden", True):
+                continue  # Filter not active
+
+            # Check if file matches any filter path
+            paths = filter_config.get("paths", [])
+            matches_filter = any(file_path.startswith(path) for path in paths)
+
+            if matches_filter:
+                # Check if query contains any show keyword (pre-lowercased)
+                keywords_lower = filter_config.get("_keywords_lower", [])
+                if not keywords_lower:
+                    # No keywords defined = always hidden
+                    return False
+                if not any(kw in query_words for kw in keywords_lower):
+                    return False  # Filter applies, hide result
+
+        return True  # No filter matched or keyword found
+
     def _apply_filters(self, results, query):
-        """Apply filters to search results"""
+        """Apply path-based filters to search results.
+
+        Filters hide documents from specific paths unless query contains
+        specified keywords. Configured via search.filters in config.
+        """
+        filters = self._get_search_filters()
+
+        if not filters:
+            return results  # No filters configured
+
         query_words = set(query.lower().split())
         filtered = []
 
-        # Incident filtering
-        hide_incidents = self.config["search"].get("hide_incidents", True)
-        show_incidents_on = self.config["search"].get("show_incidents_on", ["incident"])
-
         for score, doc_address, doc in results:
-            file_path = doc["path"][0]
+            file_path = doc["path"][0] if doc.get("path") else ""
+            if not file_path:
+                continue  # Skip documents without path
 
-            # Hide incidents unless keyword is in query
-            if hide_incidents and file_path.startswith("incidents/"):
-                if not any(keyword in query_words for keyword in show_incidents_on):
-                    continue
-
-            filtered.append((score, doc_address, doc))
+            if self._should_include_result(file_path, query_words, filters):
+                filtered.append((score, doc_address, doc))
 
         return filtered
 
@@ -1104,7 +1187,7 @@ class TantivyAgent:
 
     def _create_default_config(self, target_project_root):
         """Create default configuration for target project"""
-        config_path = os.path.join(target_project_root, ".tantivi2agents.json")
+        config_path = os.path.join(target_project_root, ".tantivy2agents.json")
 
         if os.path.exists(config_path):
             print(f"Configuration already exists: {config_path}")
@@ -1338,16 +1421,16 @@ class TantivyAgent:
         print()
         print("Install and run with uvx:")
         print(
-            "  uvx --from git+https://github.com/orgoj/tantivi2agents tantivy2agents --help"
+            "  uvx --from git+https://github.com/orgoj/tantivy2agents tantivy2agents --help"
         )
         print()
         print("Or install locally:")
-        print("  uv pip install git+https://github.com/orgoj/tantivi2agents")
+        print("  uv pip install git+https://github.com/orgoj/tantivy2agents")
         print("  tantivy2agents --help")
         print()
         print("For development:")
-        print("  git clone https://github.com/orgoj/tantivi2agents")
-        print("  cd tantivi2agents")
+        print("  git clone https://github.com/orgoj/tantivy2agents")
+        print("  cd tantivy2agents")
         print("  uv sync")
         print("  uv run tantivy2agents --help")
 
@@ -1482,7 +1565,7 @@ class TantivyAgent:
     def config_example_command(self) -> None:
         """Print example configuration with explanations"""
         example = """{
-  // Configuration file: .tantivi2agents.json
+  // Configuration file: .tantivy2agents.json
   // Place in project root directory
 
   "version": "1.0",
@@ -1522,8 +1605,14 @@ class TantivyAgent:
   // Search settings
   "search": {
     "default_limit": 10,          // Default number of results
-    "hide_incidents": true,       // Hide incident docs by default
-    "show_incidents_on": ["incident", "emergency"]  // Keywords that show incidents
+    "filters": [                  // Path-based result filters
+      {
+        "name": "incidents",      // Filter name (for debugging)
+        "paths": ["incidents/"],  // Paths to filter
+        "hidden": true,           // Hide by default
+        "show_on_keywords": ["incident", "emergency"]  // Keywords that show results
+      }
+    ]
   },
 
   // Encoding detection settings
@@ -1540,7 +1629,7 @@ class TantivyAgent:
 
 QUICK START:
   1. Run 'tantivy2agents install' in your project - auto-detects project type
-  2. Or create .tantivi2agents.json manually with above template
+  2. Or create .tantivy2agents.json manually with above template
   3. Run 'tantivy2agents index' to build the index
   4. Run 'tantivy2agents search "your query"' to search
 

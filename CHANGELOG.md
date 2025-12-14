@@ -56,7 +56,7 @@ Based on git log, notable commits include:
 
 1. **Configuration Changes**
    - Index directory changed from `.tantivy/idx` to `.tantivy-data/idx`
-   - Update your `.tantivi2agents.json` if you customized `index_dir`
+   - Update your `.tantivy2agents.json` if you customized `index_dir`
 
 2. **New Commands Available**
    - `status` - Check index statistics
