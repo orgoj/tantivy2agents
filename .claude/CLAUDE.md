@@ -42,7 +42,22 @@ Note: Hooks are now installed in .claude/settings.json, not here.
 ## 🔄 WORKFLOW
 1. Implement feature
 2. Write/update automated tests
-3. Run `python run_tests.py` - ALL tests must pass
-4. Update README.md with new functionality
-5. Commit changes
-6. NEVER manually verify or test anything
+3. Run `mise run test` - ALL tests must pass
+4. **Bump version** in pyproject.toml AND __init__.py
+5. Run `mise run pre-commit` - formatting and linting
+6. Update README.md with new functionality
+7. Commit changes
+8. NEVER manually verify or test anything
+
+## ⚠️ PROJECT-SPECIFIC RULES
+
+### Build System
+- **NO Makefile** - use `mise run [task]` for all operations
+- Available tasks: `mise run test`, `mise run pre-commit`, `mise run install`
+- **NEVER assume** build tools exist - check mise.toml first
+
+### Tantivy API Patterns
+- **Document access**: Use `doc[key]` NOT `doc.get(key)` - Tantivy Document has no `.get()` method
+- **Missing fields**: `doc[key]` returns `[]` for missing fields, NOT KeyError
+- **Schema iteration**: Schema is NOT iterable - use `parse_query(query, None)` to search all fields
+- **Backward compatibility**: Always handle missing fields gracefully (check if list is empty)

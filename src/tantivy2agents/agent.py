@@ -909,9 +909,9 @@ class TantivyAgent:
             # Normalize query for Czech search
             normalized_query = normalize_czech_text(query)
 
-            # Parse query
-            field_names = list(self.config["schema_fields"].keys())
-            query_parser = index.parse_query(normalized_query, field_names)
+            # Parse query - use None to search all fields in index schema (backward compatibility)
+            # This ensures search works even when config has more fields than old index
+            query_parser = index.parse_query(normalized_query, None)
 
             # Search
             limit = limit or self.config["search"]["default_limit"]
@@ -972,17 +972,10 @@ class TantivyAgent:
         show_description = self.config.get("search", {}).get("show_description", True)
 
         for score, doc_address, doc in results:
-            result_item = {
-                "score": round(score, 4),
-                "path": doc["path"][0] if doc["path"] else "",
-                "title": doc["title"][0] if doc["title"] else "",
-                "tags": doc["tags"][0] if doc["tags"] else "",
-                "servers": doc["servers"][0] if doc["servers"] else "",
-            }
-            if show_description:
-                result_item["description"] = (
-                    doc["description"][0] if doc["description"] else ""
-                )
+            fields = self._extract_document_fields(
+                doc, include_description=show_description
+            )
+            result_item = {"score": round(score, 4), **fields}
             export_data["results"].append(result_item)
 
         if output_file:
@@ -1014,19 +1007,13 @@ class TantivyAgent:
 
             # Write results
             for score, doc_address, doc in results:
-                row = [
-                    f"{score:.4f}",
-                    doc["path"][0] if doc["path"] else "",
-                    doc["title"][0] if doc["title"] else "",
-                ]
-                if show_description:
-                    row.append(doc["description"][0] if doc["description"] else "")
-                row.extend(
-                    [
-                        doc["tags"][0] if doc["tags"] else "",
-                        doc["servers"][0] if doc["servers"] else "",
-                    ]
+                fields = self._extract_document_fields(
+                    doc, include_description=show_description
                 )
+                row = [f"{score:.4f}", fields["path"], fields["title"]]
+                if show_description:
+                    row.append(fields["description"])
+                row.extend([fields["tags"], fields["servers"]])
                 writer.writerow(row)
 
             if output_file:
@@ -1049,22 +1036,20 @@ class TantivyAgent:
 
         try:
             for score, doc_address, doc in results:
-                path = doc["path"][0] if doc["path"] else ""
-                title = doc["title"][0] if doc["title"] else ""
-                description = doc["description"][0] if doc["description"] else ""
-                tags = doc["tags"][0] if doc["tags"] else ""
-                servers = doc["servers"][0] if doc["servers"] else ""
+                fields = self._extract_document_fields(
+                    doc, include_description=show_description
+                )
 
-                file_handle.write(f"### FILE: {path}\n")
-                if title:
-                    file_handle.write(f"TITLE: {title}\n")
-                if show_description and description:
-                    file_handle.write(f"DESCRIPTION: {description}\n")
+                file_handle.write(f"### FILE: {fields['path']}\n")
+                if fields["title"]:
+                    file_handle.write(f"TITLE: {fields['title']}\n")
+                if show_description and fields.get("description"):
+                    file_handle.write(f"DESCRIPTION: {fields['description']}\n")
                 file_handle.write(f"SCORE: {score:.4f}\n")
-                if tags:
-                    file_handle.write(f"TAGS: {tags}\n")
-                if servers:
-                    file_handle.write(f"SERVERS: {servers}\n")
+                if fields["tags"]:
+                    file_handle.write(f"TAGS: {fields['tags']}\n")
+                if fields["servers"]:
+                    file_handle.write(f"SERVERS: {fields['servers']}\n")
                 file_handle.write("---\n")
 
             if output_file:
@@ -1073,6 +1058,37 @@ class TantivyAgent:
         finally:
             if output_file:
                 file_handle.close()
+
+    def _extract_document_fields(
+        self, doc, include_description: bool = True
+    ) -> dict[str, str]:
+        """Extract display fields from a Tantivy document.
+
+        Single source of truth for document field extraction in search results.
+        Extracts only display fields (path, title, description, tags, servers),
+        NOT search fields (body) which are used only for indexing.
+        Handles backward compatibility for optional fields.
+
+        Note: Tantivy doc[key] returns [] for missing fields, not KeyError.
+
+        Args:
+            doc: Tantivy document object
+            include_description: Whether to include description field
+
+        Returns:
+            Dict with normalized field values (always strings, never None)
+        """
+        fields = {
+            "path": doc["path"][0] if doc["path"] else "",
+            "title": doc["title"][0] if doc["title"] else "",
+            "tags": doc["tags"][0] if doc["tags"] else "",
+            "servers": doc["servers"][0] if doc["servers"] else "",
+        }
+
+        if include_description:
+            fields["description"] = doc["description"][0] if doc["description"] else ""
+
+        return fields
 
     def _get_search_filters(self) -> list:
         """Get search filters from configuration.

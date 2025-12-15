@@ -204,7 +204,8 @@ def test_export_functionality():
         try:
             agent = TantivyAgent()
 
-            # Create mock document object
+            # Create mock document object that simulates Tantivy doc
+            # Tantivy doc[key] returns [] for missing fields, not KeyError
             class MockDoc:
                 def __getitem__(self, key):
                     return [f"mock_value_{key}", f"second_value_{key}"]
@@ -1037,6 +1038,53 @@ def test_search_filters_empty():
             os.chdir(old_cwd)
 
 
+def test_extract_document_fields_backward_compat():
+    """Test backward compatibility - missing description field in old index"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        subprocess.run(["git", "init"], cwd=temp_dir, capture_output=True)
+
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            agent = TantivyAgent()
+
+            # Mock a Tantivy document from old index without description field
+            # Note: Tantivy doc[key] returns [] for missing fields, not KeyError
+            class MockDoc:
+                def __getitem__(self, key):
+                    data = {
+                        "path": ["test.md"],
+                        "title": ["Test Title"],
+                        "tags": ["tag1"],
+                        "servers": ["server1"],
+                        # description missing - simulates old index
+                    }
+                    return data.get(key, [])  # Tantivy returns [] for missing
+
+            doc = MockDoc()
+
+            # Test with description requested - should return empty string, not error
+            fields = agent._extract_document_fields(doc, include_description=True)
+            assert (
+                fields["description"] == ""
+            ), "Missing description should be empty string"
+            assert fields["path"] == "test.md"
+            assert fields["title"] == "Test Title"
+            assert fields["tags"] == "tag1"
+            assert fields["servers"] == "server1"
+
+            # Test without description - should not include description key
+            fields_no_desc = agent._extract_document_fields(
+                doc, include_description=False
+            )
+            assert (
+                "description" not in fields_no_desc
+            ), "Should not include description when disabled"
+            assert fields_no_desc["path"] == "test.md"
+        finally:
+            os.chdir(old_cwd)
+
+
 def main():
     """Run all tests"""
     print("Running Tantivy Agent Tests...")
@@ -1059,6 +1107,10 @@ def main():
         ("Search Filters", test_search_filters),
         ("Search Filters Validation", test_search_filters_validation),
         ("Search Filters Empty", test_search_filters_empty),
+        (
+            "Extract Document Fields Backward Compat",
+            test_extract_document_fields_backward_compat,
+        ),
         ("Output Formats", test_output_formats),
         ("JSON Empty Title", test_json_empty_title),
         ("Description Output", test_description_output),
