@@ -135,12 +135,13 @@ class TantivyAgent:
             ],
             "schema_fields": {
                 "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "description": {"weight": 1.5, "tokenizer": "en_stem"},
                 "body": {"weight": 1.0, "tokenizer": "en_stem"},
                 "tags": {"weight": 1.5, "tokenizer": "default"},
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "filters": []},
+            "search": {"default_limit": 10, "show_description": True, "filters": []},
             "encoding": {
                 "default_encoding": "utf-8",
                 "auto_detect": True,
@@ -320,12 +321,13 @@ class TantivyAgent:
             },
             "schema_fields": {
                 "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "description": {"weight": 1.5, "tokenizer": "en_stem"},
                 "body": {"weight": 1.0, "tokenizer": "en_stem"},
                 "tags": {"weight": 1.5, "tokenizer": "default"},
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "filters": []},
+            "search": {"default_limit": 10, "show_description": True, "filters": []},
             "auto_hook": True,
         }
 
@@ -759,8 +761,12 @@ class TantivyAgent:
         title_normalized = normalize_czech_text(title or os.path.basename(file_path))
         body_normalized = normalize_czech_text(body)
 
+        # Extract description from frontmatter
+        description = meta.get("description", "") or ""
+
         return {
             "title": title_normalized,
+            "description": description,
             "body": body_normalized,
             "tags": " ".join(meta.get("tags", []))
             if isinstance(meta.get("tags"), list)
@@ -963,6 +969,8 @@ class TantivyAgent:
             "results": [],
         }
 
+        show_description = self.config.get("search", {}).get("show_description", True)
+
         for score, doc_address, doc in results:
             result_item = {
                 "score": round(score, 4),
@@ -971,6 +979,10 @@ class TantivyAgent:
                 "tags": doc["tags"][0] if doc["tags"] else "",
                 "servers": doc["servers"][0] if doc["servers"] else "",
             }
+            if show_description:
+                result_item["description"] = (
+                    doc["description"][0] if doc["description"] else ""
+                )
             export_data["results"].append(result_item)
 
         if output_file:
@@ -987,11 +999,18 @@ class TantivyAgent:
         else:
             file_handle = sys.stdout
 
+        show_description = self.config.get("search", {}).get("show_description", True)
+
         try:
             writer = csv.writer(file_handle)
 
             # Write header
-            writer.writerow(["Score", "Path", "Title", "Tags", "Servers"])
+            if show_description:
+                writer.writerow(
+                    ["Score", "Path", "Title", "Description", "Tags", "Servers"]
+                )
+            else:
+                writer.writerow(["Score", "Path", "Title", "Tags", "Servers"])
 
             # Write results
             for score, doc_address, doc in results:
@@ -999,9 +1018,15 @@ class TantivyAgent:
                     f"{score:.4f}",
                     doc["path"][0] if doc["path"] else "",
                     doc["title"][0] if doc["title"] else "",
-                    doc["tags"][0] if doc["tags"] else "",
-                    doc["servers"][0] if doc["servers"] else "",
                 ]
+                if show_description:
+                    row.append(doc["description"][0] if doc["description"] else "")
+                row.extend(
+                    [
+                        doc["tags"][0] if doc["tags"] else "",
+                        doc["servers"][0] if doc["servers"] else "",
+                    ]
+                )
                 writer.writerow(row)
 
             if output_file:
@@ -1020,16 +1045,21 @@ class TantivyAgent:
         else:
             file_handle = sys.stdout
 
+        show_description = self.config.get("search", {}).get("show_description", True)
+
         try:
             for score, doc_address, doc in results:
                 path = doc["path"][0] if doc["path"] else ""
                 title = doc["title"][0] if doc["title"] else ""
+                description = doc["description"][0] if doc["description"] else ""
                 tags = doc["tags"][0] if doc["tags"] else ""
                 servers = doc["servers"][0] if doc["servers"] else ""
 
                 file_handle.write(f"### FILE: {path}\n")
                 if title:
                     file_handle.write(f"TITLE: {title}\n")
+                if show_description and description:
+                    file_handle.write(f"DESCRIPTION: {description}\n")
                 file_handle.write(f"SCORE: {score:.4f}\n")
                 if tags:
                     file_handle.write(f"TAGS: {tags}\n")
@@ -1568,6 +1598,7 @@ class TantivyAgent:
   // Search field configuration with weights
   "schema_fields": {
     "title": {"weight": 2.0, "tokenizer": "en_stem"},   // Higher weight = more important
+    "description": {"weight": 1.5, "tokenizer": "en_stem"},  // From YAML frontmatter
     "body": {"weight": 1.0, "tokenizer": "en_stem"},
     "tags": {"weight": 1.5, "tokenizer": "default"},
     "path": {"weight": 0.5, "tokenizer": "raw"}
@@ -1576,6 +1607,7 @@ class TantivyAgent:
   // Search settings
   "search": {
     "default_limit": 10,          // Default number of results
+    "show_description": true,     // Show description in results (default: true)
     "filters": [                  // Path-based result filters
       {
         "name": "incidents",      // Filter name (for debugging)
@@ -1614,9 +1646,12 @@ MARKDOWN FRONTMATTER:
   Files with YAML frontmatter are parsed for metadata:
   ---
   title: Document Title
+  description: Brief summary of the document content
   tags: [api, guide]
   servers: [prod, staging]
   ---
   Document content here...
+
+  The description field is shown in search results when show_description is true.
 """
         print(example)

@@ -50,12 +50,13 @@ def test_basic_functionality():
             "index_dirs": ["docs/"],
             "schema_fields": {
                 "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "description": {"weight": 1.5, "tokenizer": "en_stem"},
                 "body": {"weight": 1.0, "tokenizer": "en_stem"},
                 "tags": {"weight": 1.5, "tokenizer": "default"},
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "filters": []},
+            "search": {"default_limit": 10, "show_description": True, "filters": []},
             "auto_hook": False,  # Disable hooks for testing
         }
 
@@ -145,10 +146,11 @@ def test_file_parsing():
         try:
             agent = TantivyAgent()
 
-            # Create test markdown file
+            # Create test markdown file with description
             with open("test.md", "w") as f:
                 f.write("""---
 title: Custom Title
+description: Brief summary of document content
 tags: [test, markdown]
 servers: [web, api]
 
@@ -164,6 +166,8 @@ This is the body content.
             assert doc is not None
             # Title is Czech-normalized, so check for stemmed version
             assert "custom" in doc["title"].lower()
+            # Check description is parsed
+            assert doc["description"] == "Brief summary of document content"
             assert "test markdown" in doc["tags"]
             assert "web api" in doc["servers"]
             # Body is also normalized ("body" -> "bod", "content" -> "content")
@@ -430,12 +434,13 @@ def test_status_command():
             "index_dirs": ["docs/"],
             "schema_fields": {
                 "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "description": {"weight": 1.5, "tokenizer": "en_stem"},
                 "body": {"weight": 1.0, "tokenizer": "en_stem"},
                 "tags": {"weight": 1.5, "tokenizer": "default"},
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "filters": []},
+            "search": {"default_limit": 10, "show_description": True, "filters": []},
             "auto_hook": False,  # Disable hooks for testing
         }
 
@@ -617,6 +622,7 @@ def test_search_filters():
             "index_dirs": ["docs/", "incidents/"],
             "schema_fields": {
                 "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "description": {"weight": 1.5, "tokenizer": "en_stem"},
                 "body": {"weight": 1.0, "tokenizer": "en_stem"},
                 "tags": {"weight": 1.5, "tokenizer": "default"},
                 "servers": {"weight": 1.5, "tokenizer": "default"},
@@ -624,6 +630,7 @@ def test_search_filters():
             },
             "search": {
                 "default_limit": 10,
+                "show_description": True,
                 "filters": [
                     {
                         "name": "incidents",
@@ -771,12 +778,13 @@ def test_output_formats():
             "index_dirs": ["docs/"],
             "schema_fields": {
                 "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "description": {"weight": 1.5, "tokenizer": "en_stem"},
                 "body": {"weight": 1.0, "tokenizer": "en_stem"},
                 "tags": {"weight": 1.5, "tokenizer": "default"},
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "filters": []},
+            "search": {"default_limit": 10, "show_description": True, "filters": []},
             "auto_hook": False,
         }
 
@@ -829,12 +837,13 @@ def test_json_empty_title():
             "index_dirs": ["docs/"],
             "schema_fields": {
                 "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "description": {"weight": 1.5, "tokenizer": "en_stem"},
                 "body": {"weight": 1.0, "tokenizer": "en_stem"},
                 "tags": {"weight": 1.5, "tokenizer": "default"},
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "filters": []},
+            "search": {"default_limit": 10, "show_description": True, "filters": []},
             "auto_hook": False,
         }
 
@@ -862,6 +871,140 @@ def test_json_empty_title():
             # Title should be empty or contain actual content (not "No title")
             title = output_data["results"][0]["title"]
             assert title != "No title", f"Title should not be 'No title', got: {title}"
+
+
+def test_description_output():
+    """Test description field in search results"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create test config with show_description=True
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md"], "exclude": []},
+            "index_dirs": ["docs/"],
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "description": {"weight": 1.5, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "tags": {"weight": 1.5, "tokenizer": "default"},
+                "servers": {"weight": 1.5, "tokenizer": "default"},
+                "path": {"weight": 0.5, "tokenizer": "raw"},
+            },
+            "search": {"default_limit": 10, "show_description": True, "filters": []},
+            "auto_hook": False,
+        }
+
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        # Create test document with description
+        docs_dir = os.path.join(temp_dir, "docs")
+        os.makedirs(docs_dir, exist_ok=True)
+        with open(os.path.join(docs_dir, "guide.md"), "w") as f:
+            f.write("""---
+title: Complete Guide
+description: A comprehensive guide for testing functionality
+tags: [guide, test]
+---
+
+# Complete Guide
+
+This is test content about testing.
+""")
+
+        # Build index
+        result = run_cli_command(["index"], cwd=temp_dir)
+        assert result.returncode == 0, f"Index failed: {result.stderr}"
+
+        # Test text output contains DESCRIPTION
+        result = run_cli_command(["search", "test", "-T"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search failed: {result.stderr}"
+        assert "DESCRIPTION:" in result.stdout, "Text output should have DESCRIPTION"
+        assert "comprehensive guide" in result.stdout, "Should contain description text"
+
+        # Test JSON output contains description
+        result = run_cli_command(["search", "test", "-j"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search -j failed: {result.stderr}"
+        output_data = json.loads(result.stdout)
+        assert (
+            "description" in output_data["results"][0]
+        ), "JSON should have description field"
+        assert (
+            "comprehensive guide" in output_data["results"][0]["description"]
+        ), "JSON should contain description"
+
+        # Test CSV output contains Description header
+        result = run_cli_command(["search", "test", "-c"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search -c failed: {result.stderr}"
+        assert "Description" in result.stdout, "CSV header should have Description"
+
+
+def test_description_hidden():
+    """Test description field hidden when show_description=False"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create test config with show_description=False
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md"], "exclude": []},
+            "index_dirs": ["docs/"],
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "description": {"weight": 1.5, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "tags": {"weight": 1.5, "tokenizer": "default"},
+                "servers": {"weight": 1.5, "tokenizer": "default"},
+                "path": {"weight": 0.5, "tokenizer": "raw"},
+            },
+            "search": {"default_limit": 10, "show_description": False, "filters": []},
+            "auto_hook": False,
+        }
+
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        # Create test document with description
+        docs_dir = os.path.join(temp_dir, "docs")
+        os.makedirs(docs_dir, exist_ok=True)
+        with open(os.path.join(docs_dir, "guide.md"), "w") as f:
+            f.write("""---
+title: Complete Guide
+description: A comprehensive guide for testing functionality
+tags: [guide, test]
+---
+
+# Complete Guide
+
+This is test content about testing.
+""")
+
+        # Build index
+        result = run_cli_command(["index"], cwd=temp_dir)
+        assert result.returncode == 0, f"Index failed: {result.stderr}"
+
+        # Test text output does NOT contain DESCRIPTION
+        result = run_cli_command(["search", "test", "-T"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search failed: {result.stderr}"
+        assert (
+            "DESCRIPTION:" not in result.stdout
+        ), "Text output should NOT have DESCRIPTION when hidden"
+
+        # Test JSON output does NOT contain description field
+        result = run_cli_command(["search", "test", "-j"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search -j failed: {result.stderr}"
+        output_data = json.loads(result.stdout)
+        assert (
+            "description" not in output_data["results"][0]
+        ), "JSON should NOT have description when hidden"
+
+        # Test CSV output does NOT contain Description header
+        result = run_cli_command(["search", "test", "-c"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search -c failed: {result.stderr}"
+        assert (
+            ",Description," not in result.stdout
+        ), "CSV header should NOT have Description when hidden"
 
 
 def test_search_filters_empty():
@@ -918,6 +1061,8 @@ def main():
         ("Search Filters Empty", test_search_filters_empty),
         ("Output Formats", test_output_formats),
         ("JSON Empty Title", test_json_empty_title),
+        ("Description Output", test_description_output),
+        ("Description Hidden", test_description_hidden),
     ]
 
     passed = 0
