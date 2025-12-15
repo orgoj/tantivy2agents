@@ -929,41 +929,29 @@ class TantivyAgent:
                 print("No results found after filtering")
                 return
 
-            # Export or display results
-            if format_output:
-                self._export_results(
-                    filtered_results[:limit], query, format_output, output_file
-                )
-            else:
-                self._display_results(filtered_results[:limit])
+            # Export results in requested format (default: json)
+            self._export_results(
+                filtered_results[:limit], query, format_output or "json", output_file
+            )
 
         except (OSError, ValueError, RuntimeError) as e:
             logger.error("Search error: %s", e)
 
-    def _display_results(self, results):
-        """Display results in standard format"""
-        print(f"Found {len(results)} results:")
-        print()
-
-        for score, doc_address, doc in results:
-            path = doc["path"][0]
-            title = doc["title"][0] if doc["title"] else "No title"
-            print(f"  {path}")
-            print(f"   {title}")
-            print(f"   [score: {score:.3f}]")
-            print()
-
     def _export_results(self, results, query, format_output, output_file):
         """Export results in specified format"""
-        if format_output.lower() == "json":
+        fmt = format_output.lower()
+        if fmt == "json":
             self._export_json(results, query, output_file)
-        elif format_output.lower() == "csv":
+        elif fmt == "csv":
             self._export_csv(results, query, output_file)
-        elif format_output.lower() == "txt":
-            self._export_txt(results, query, output_file)
+        elif fmt == "text":
+            self._export_text(results, query, output_file)
+        elif fmt == "txt":
+            # Legacy format - redirect to text
+            self._export_text(results, query, output_file)
         else:
             print(f"Unsupported format: {format_output}")
-            print("Supported formats: json, csv, txt")
+            print("Supported formats: json, csv, text")
             return
 
     def _export_json(self, results, query, output_file):
@@ -979,7 +967,7 @@ class TantivyAgent:
             result_item = {
                 "score": round(score, 4),
                 "path": doc["path"][0] if doc["path"] else "",
-                "title": doc["title"][0] if doc["title"] else "No title",
+                "title": doc["title"][0] if doc["title"] else "",
                 "body": doc["body"][0] if doc["body"] else "",
                 "tags": doc["tags"][0] if doc["tags"] else "",
                 "servers": doc["servers"][0] if doc["servers"] else "",
@@ -1026,45 +1014,29 @@ class TantivyAgent:
             if output_file:
                 file_handle.close()
 
-    def _export_txt(self, results, query, output_file):
-        """Export results as plain text"""
+    def _export_text(self, results, query, output_file):
+        """Export results as structured text for easy parsing"""
         if output_file:
             file_handle = open(output_file, "w", encoding="utf-8")
         else:
             file_handle = sys.stdout
 
         try:
-            file_handle.write(f"Search Results for: '{query}'\n")
-            file_handle.write(
-                f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-            )
-            file_handle.write(f"Total Results: {len(results)}\n")
-            file_handle.write("=" * 60 + "\n\n")
-
-            for i, (score, doc_address, doc) in enumerate(results, 1):
+            for score, doc_address, doc in results:
                 path = doc["path"][0] if doc["path"] else ""
-                title = doc["title"][0] if doc["title"] else "No title"
-                body = doc["body"][0] if doc["body"] else ""
+                title = doc["title"][0] if doc["title"] else ""
                 tags = doc["tags"][0] if doc["tags"] else ""
                 servers = doc["servers"][0] if doc["servers"] else ""
 
-                file_handle.write(f"{i}. {title}\n")
-                file_handle.write(f"   Path: {path}\n")
-                file_handle.write(f"   Score: {score:.4f}\n")
-
+                file_handle.write(f"### FILE: {path}\n")
+                if title:
+                    file_handle.write(f"TITLE: {title}\n")
+                file_handle.write(f"SCORE: {score:.4f}\n")
                 if tags:
-                    file_handle.write(f"   Tags: {tags}\n")
+                    file_handle.write(f"TAGS: {tags}\n")
                 if servers:
-                    file_handle.write(f"   Servers: {servers}\n")
-
-                # Add snippet of body (first 200 characters)
-                if body:
-                    snippet = body.replace("\n", " ")[:200]
-                    if len(body) > 200:
-                        snippet += "..."
-                    file_handle.write(f"   Preview: {snippet}\n")
-
-                file_handle.write("\n")
+                    file_handle.write(f"SERVERS: {servers}\n")
+                file_handle.write("---\n")
 
             if output_file:
                 print(f"Results exported to {output_file}")

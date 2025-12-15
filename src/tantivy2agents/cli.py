@@ -29,9 +29,11 @@ Examples:
   tantivy2agents install --target ../proj   # Setup in another project
   tantivy2agents index                      # Build index
   tantivy2agents index --force              # Rebuild from scratch
-  tantivy2agents search "my query"          # Search
+  tantivy2agents search "my query"          # Search (JSON output by default)
   tantivy2agents search "api" --limit 5     # Limit results
-  tantivy2agents search "config" -f json    # Export as JSON
+  tantivy2agents search "config" -T         # Structured text output
+  tantivy2agents search "config" -c         # CSV output
+  tantivy2agents search "config" -o out.json # Save to file
   tantivy2agents config-example             # Show config template
   tantivy2agents status                     # Show index info
 
@@ -68,11 +70,20 @@ Configuration:
     parser.add_argument("--limit", type=int, help="Number of search results")
     parser.add_argument("--force", action="store_true", help="Force rebuild index")
     parser.add_argument("--config", help="Path to config file")
+    # Format arguments (mutually exclusive shortcuts)
     parser.add_argument(
         "--format",
-        choices=["json", "csv", "txt"],
-        help="Export results in specified format",
+        "-f",
+        choices=["json", "csv", "text"],
+        help="Output format (default: json)",
     )
+    parser.add_argument(
+        "-j", "--json", action="store_true", help="JSON output (default)"
+    )
+    parser.add_argument(
+        "-T", "--text", action="store_true", help="Structured text output"
+    )
+    parser.add_argument("-c", "--csv", action="store_true", help="CSV output")
     parser.add_argument("--output", "-o", help="Output file for exported results")
     parser.add_argument(
         "--target",
@@ -121,7 +132,16 @@ Configuration:
         )
     elif args.command == "search":
         query = " ".join(args.query) if args.query else ""
-        agent.search_command(query, args.limit, args.format, args.output)
+        # Determine output format from arguments (default: json)
+        output_format = "json"  # default
+        if args.format:
+            output_format = args.format
+        elif args.text:
+            output_format = "text"
+        elif args.csv:
+            output_format = "csv"
+        # -j/--json keeps the default
+        agent.search_command(query, args.limit, output_format, args.output)
     elif args.command == "clear":
         agent.clear_command()
     elif args.command == "install":

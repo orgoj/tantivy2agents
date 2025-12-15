@@ -99,13 +99,13 @@ Complete guide for testing functionality.
         if "Successfully indexed" not in result.stdout:
             raise Exception("Indexing did not succeed")
 
-        # Test search command
+        # Test search command (default output is JSON)
         result = run_cli_command(["search", "server"], cwd=temp_dir)
         if result.returncode != 0:
             raise Exception(f"Search command failed: {result.stderr}")
 
-        if "Found" not in result.stdout:
-            raise Exception("Search did not find results")
+        if '"results":' not in result.stdout:
+            raise Exception("Search did not return JSON results")
 
         # Test clear command
         result = run_cli_command(["clear"], cwd=temp_dir)
@@ -232,16 +232,16 @@ def test_export_functionality():
                 assert "Score,Path,Title" in content
                 assert "0.8500" in content
 
-            # Test text export to file
+            # Test text export to file (structured format)
             txt_file = "test_export.txt"
-            agent._export_txt(results, "test query", txt_file)
+            agent._export_text(results, "test query", txt_file)
 
             assert os.path.exists(txt_file)
             with open(txt_file, "r") as f:
                 content = f.read()
-                assert "Search Results for: 'test query'" in content
-                assert "Total Results: 2" in content
-                assert "1. mock_value_title" in content
+                assert "### FILE:" in content
+                assert "SCORE:" in content
+                assert "---" in content
 
         finally:
             os.chdir(original_cwd)
@@ -760,6 +760,110 @@ def test_search_filters_validation():
             os.chdir(old_cwd)
 
 
+def test_output_formats():
+    """Test CLI output format arguments (-j, -T, -c)"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create test config
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md"], "exclude": []},
+            "index_dirs": ["docs/"],
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "tags": {"weight": 1.5, "tokenizer": "default"},
+                "servers": {"weight": 1.5, "tokenizer": "default"},
+                "path": {"weight": 0.5, "tokenizer": "raw"},
+            },
+            "search": {"default_limit": 10, "filters": []},
+            "auto_hook": False,
+        }
+
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        # Create test document
+        docs_dir = os.path.join(temp_dir, "docs")
+        os.makedirs(docs_dir, exist_ok=True)
+        with open(os.path.join(docs_dir, "guide.md"), "w") as f:
+            f.write("# Complete Guide to Testing\n\nThis is test content.")
+
+        # Build index
+        result = run_cli_command(["index"], cwd=temp_dir)
+        assert result.returncode == 0, f"Index failed: {result.stderr}"
+
+        # Test default output (JSON)
+        result = run_cli_command(["search", "test"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search failed: {result.stderr}"
+        assert '"query":' in result.stdout, "Default output should be JSON"
+        assert '"results":' in result.stdout, "Should have results array"
+
+        # Test -j (explicit JSON)
+        result = run_cli_command(["search", "test", "-j"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search -j failed: {result.stderr}"
+        assert '"query":' in result.stdout, "-j output should be JSON"
+
+        # Test -T (structured text)
+        result = run_cli_command(["search", "test", "-T"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search -T failed: {result.stderr}"
+        assert "### FILE:" in result.stdout, "-T output should have FILE marker"
+        assert "SCORE:" in result.stdout, "-T output should have SCORE"
+        assert "---" in result.stdout, "-T output should have separator"
+
+        # Test -c (CSV)
+        result = run_cli_command(["search", "test", "-c"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search -c failed: {result.stderr}"
+        assert "Score,Path,Title" in result.stdout, "-c output should be CSV"
+
+
+def test_json_empty_title():
+    """Test that JSON output doesn't use filename as fallback title"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create test config
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md"], "exclude": []},
+            "index_dirs": ["docs/"],
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "tags": {"weight": 1.5, "tokenizer": "default"},
+                "servers": {"weight": 1.5, "tokenizer": "default"},
+                "path": {"weight": 0.5, "tokenizer": "raw"},
+            },
+            "search": {"default_limit": 10, "filters": []},
+            "auto_hook": False,
+        }
+
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        # Create test document WITHOUT a title heading
+        docs_dir = os.path.join(temp_dir, "docs")
+        os.makedirs(docs_dir, exist_ok=True)
+        with open(os.path.join(docs_dir, "notitle.md"), "w") as f:
+            f.write("This document has no title heading, just content.")
+
+        # Build index
+        result = run_cli_command(["index"], cwd=temp_dir)
+        assert result.returncode == 0, f"Index failed: {result.stderr}"
+
+        # Search and verify title is empty, not "No title"
+        result = run_cli_command(["search", "content"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search failed: {result.stderr}"
+        assert '"No title"' not in result.stdout, "Should not have 'No title' fallback"
+        # Parse JSON to verify empty title
+        output_data = json.loads(result.stdout)
+        if output_data["results"]:
+            # Title should be empty or contain actual content (not "No title")
+            title = output_data["results"][0]["title"]
+            assert title != "No title", f"Title should not be 'No title', got: {title}"
+
+
 def test_search_filters_empty():
     """Test that empty filters list allows all results"""
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -812,6 +916,8 @@ def main():
         ("Search Filters", test_search_filters),
         ("Search Filters Validation", test_search_filters_validation),
         ("Search Filters Empty", test_search_filters_empty),
+        ("Output Formats", test_output_formats),
+        ("JSON Empty Title", test_json_empty_title),
     ]
 
     passed = 0
