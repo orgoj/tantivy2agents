@@ -99,13 +99,13 @@ Complete guide for testing functionality.
         if "Successfully indexed" not in result.stdout:
             raise Exception("Indexing did not succeed")
 
-        # Test search command (default output is JSON)
+        # Test search command (default output is structured text)
         result = run_cli_command(["search", "server"], cwd=temp_dir)
         if result.returncode != 0:
             raise Exception(f"Search command failed: {result.stderr}")
 
-        if '"results":' not in result.stdout:
-            raise Exception("Search did not return JSON results")
+        if "### FILE:" not in result.stdout:
+            raise Exception("Search did not return structured text results")
 
         # Test clear command
         result = run_cli_command(["clear"], cwd=temp_dir)
@@ -794,23 +794,23 @@ def test_output_formats():
         result = run_cli_command(["index"], cwd=temp_dir)
         assert result.returncode == 0, f"Index failed: {result.stderr}"
 
-        # Test default output (JSON)
+        # Test default output (structured text)
         result = run_cli_command(["search", "test"], cwd=temp_dir)
         assert result.returncode == 0, f"Search failed: {result.stderr}"
-        assert '"query":' in result.stdout, "Default output should be JSON"
-        assert '"results":' in result.stdout, "Should have results array"
+        assert "### FILE:" in result.stdout, "Default output should be structured text"
+        assert "SCORE:" in result.stdout, "Should have SCORE"
+        assert "---" in result.stdout, "Should have separator"
 
-        # Test -j (explicit JSON)
+        # Test -j (JSON)
         result = run_cli_command(["search", "test", "-j"], cwd=temp_dir)
         assert result.returncode == 0, f"Search -j failed: {result.stderr}"
         assert '"query":' in result.stdout, "-j output should be JSON"
+        assert '"results":' in result.stdout, "-j should have results array"
 
-        # Test -T (structured text)
+        # Test -T (explicit structured text)
         result = run_cli_command(["search", "test", "-T"], cwd=temp_dir)
         assert result.returncode == 0, f"Search -T failed: {result.stderr}"
         assert "### FILE:" in result.stdout, "-T output should have FILE marker"
-        assert "SCORE:" in result.stdout, "-T output should have SCORE"
-        assert "---" in result.stdout, "-T output should have separator"
 
         # Test -c (CSV)
         result = run_cli_command(["search", "test", "-c"], cwd=temp_dir)
@@ -852,8 +852,8 @@ def test_json_empty_title():
         result = run_cli_command(["index"], cwd=temp_dir)
         assert result.returncode == 0, f"Index failed: {result.stderr}"
 
-        # Search and verify title is empty, not "No title"
-        result = run_cli_command(["search", "content"], cwd=temp_dir)
+        # Search with JSON output and verify title is empty, not "No title"
+        result = run_cli_command(["search", "content", "-j"], cwd=temp_dir)
         assert result.returncode == 0, f"Search failed: {result.stderr}"
         assert '"No title"' not in result.stdout, "Should not have 'No title' fallback"
         # Parse JSON to verify empty title

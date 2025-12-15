@@ -968,7 +968,6 @@ class TantivyAgent:
                 "score": round(score, 4),
                 "path": doc["path"][0] if doc["path"] else "",
                 "title": doc["title"][0] if doc["title"] else "",
-                "body": doc["body"][0] if doc["body"] else "",
                 "tags": doc["tags"][0] if doc["tags"] else "",
                 "servers": doc["servers"][0] if doc["servers"] else "",
             }
@@ -999,7 +998,7 @@ class TantivyAgent:
                 row = [
                     f"{score:.4f}",
                     doc["path"][0] if doc["path"] else "",
-                    doc["title"][0] if doc["title"] else "No title",
+                    doc["title"][0] if doc["title"] else "",
                     doc["tags"][0] if doc["tags"] else "",
                     doc["servers"][0] if doc["servers"] else "",
                 ]
