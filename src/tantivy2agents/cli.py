@@ -8,6 +8,7 @@ from rich.console import Console
 
 from .agent import TantivyAgent
 from .exceptions import CLIError, ValidationError
+from . import __version__
 
 app = typer.Typer(
     name="tantivy2agents",
@@ -17,6 +18,26 @@ app = typer.Typer(
 )
 
 console = Console()
+
+
+def version_callback(value: bool):
+    if value:
+        console.print(f"tantivy2agents {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def common(
+    ctx: typer.Context,
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        callback=version_callback,
+        is_eager=True,
+        help="Show the version and exit.",
+    ),
+):
+    pass
 
 
 class OutputFormat(str, Enum):
