@@ -66,11 +66,15 @@ tantivy2agents search "your query"
 git clone https://github.com/orgoj/tantivy2agents
 cd tantivy2agents
 
-# Setup development environment
-mise run install   # or: uv sync && pre-commit install
+# Install dependencies
+uv sync
+uv run pre-commit install
 
-# Run in development mode
-uv run tantivy2agents --help
+# Install local version (updates your global tantivy2agents command)
+uv tool install --reinstall .
+
+# Run tests
+uv run python run_tests.py
 ```
 
 ## Features

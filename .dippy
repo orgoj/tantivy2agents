@@ -1,3 +1,6 @@
 allow python run_tests.py
 
 allow uv run tantivy2agents *
+allow uv run python -m pytest *
+allow uv run python run_tests.py *
+allow uv run python tests/** *
