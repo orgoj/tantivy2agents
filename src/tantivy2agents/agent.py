@@ -1685,3 +1685,101 @@ MARKDOWN FRONTMATTER:
   The description field is shown in search results when show_description is true.
 """
         print(example)
+
+    def _find_skill_file(self, skill_name: str) -> str:
+        """Find skill file path.
+
+        Tries multiple locations:
+        1. Package skills: src/tantivy2agents/skills/{skill_name}/SKILL.md
+        2. Development: .claude/skills/{skill_name}/SKILL.md
+        3. Relative path from agent.py
+
+        Args:
+            skill_name: Name of the skill (e.g., "tantivy2agents-usage")
+
+        Returns:
+            Path to skill file
+
+        Raises:
+            FileNotFoundError: If skill file cannot be found
+        """
+        # Try package skills directory first (for installed version)
+        this_file_dir = os.path.dirname(os.path.abspath(__file__))
+        package_skill_path = os.path.join(
+            this_file_dir, "skills", skill_name, "SKILL.md"
+        )
+        if os.path.exists(package_skill_path):
+            return package_skill_path
+
+        # Try development location (.claude/skills/)
+        dev_skill_path = os.path.join(
+            self.project_root, ".claude", "skills", skill_name, "SKILL.md"
+        )
+        if os.path.exists(dev_skill_path):
+            return dev_skill_path
+
+        # Fallback: relative path from this file (going up to project root)
+        fallback_path = os.path.join(
+            this_file_dir, "..", "..", ".claude", "skills", skill_name, "SKILL.md"
+        )
+        fallback_path = os.path.normpath(fallback_path)
+        if os.path.exists(fallback_path):
+            return fallback_path
+
+        raise FileNotFoundError(
+            f"Skill file not found: {skill_name}\n"
+            f"Searched locations:\n"
+            f"  - {package_skill_path}\n"
+            f"  - {dev_skill_path}\n"
+            f"  - {fallback_path}"
+        )
+
+    def skill_usage_command(self, output_file: Optional[str] = None) -> None:
+        """Output usage skill content in markdown format.
+
+        Args:
+            output_file: Optional path to save output
+        """
+        try:
+            skill_path = self._find_skill_file("tantivy2agents-usage")
+            with open(skill_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            if output_file:
+                with open(output_file, "w", encoding="utf-8") as f:
+                    f.write(content)
+                if not self.quiet:
+                    print(f"✓ Usage skill written to: {output_file}")
+            else:
+                print(content)
+        except FileNotFoundError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        except OSError as e:
+            print(f"Error reading skill file: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    def skill_setup_command(self, output_file: Optional[str] = None) -> None:
+        """Output setup skill content in markdown format.
+
+        Args:
+            output_file: Optional path to save output
+        """
+        try:
+            skill_path = self._find_skill_file("tantivy2agents-setup")
+            with open(skill_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            if output_file:
+                with open(output_file, "w", encoding="utf-8") as f:
+                    f.write(content)
+                if not self.quiet:
+                    print(f"✓ Setup skill written to: {output_file}")
+            else:
+                print(content)
+        except FileNotFoundError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        except OSError as e:
+            print(f"Error reading skill file: {e}", file=sys.stderr)
+            sys.exit(1)

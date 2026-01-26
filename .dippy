@@ -1,1 +1,3 @@
 allow python run_tests.py
+
+allow uv run tantivy2agents *

@@ -23,6 +23,8 @@ Commands:
   config-example Show example configuration with explanations
   encoding-info  Analyze file encodings in project
   hook-clear     Mark index as outdated (used by Claude hooks)
+  skill-usage    Output usage documentation (daily commands)
+  skill-setup    Output setup documentation (configuration)
 
 Examples:
   tantivy2agents install                    # Setup in current project
@@ -35,12 +37,16 @@ Examples:
   tantivy2agents search "config" -c         # CSV output
   tantivy2agents search "config" -o out.json # Save to file
   tantivy2agents config-example             # Show config template
-  tantivy2agents status                     # Show index info
+  tantovy2agents status                     # Show index info
+  tantivy2agents skill-usage                # View usage documentation
+  tantivy2agents skill-usage -o guide.md    # Save usage guide
+  tantivy2agents skill-setup                # View setup documentation
 
 Configuration:
   Config file: .tantivy2agents.json (in project root)
   Run 'tantivy2agents config-example' to see full config template with comments.
   Run 'tantivy2agents install' to auto-generate config for your project type.
+  Run 'tantivy2agents skill-usage' / 'skill-setup' to view documentation.
         """,
     )
 
@@ -62,6 +68,8 @@ Configuration:
             "setup",
             "status",
             "config-example",
+            "skill-usage",
+            "skill-setup",
         ],
         help="Command to execute",
     )
@@ -155,6 +163,10 @@ Configuration:
         agent.status_command()
     elif args.command == "config-example":
         agent.config_example_command()
+    elif args.command == "skill-usage":
+        agent.skill_usage_command(args.output)
+    elif args.command == "skill-setup":
+        agent.skill_setup_command(args.output)
 
 
 if __name__ == "__main__":
