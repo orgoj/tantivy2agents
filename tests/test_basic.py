@@ -1085,6 +1085,78 @@ def test_extract_document_fields_backward_compat():
             os.chdir(old_cwd)
 
 
+def test_excluded_directories():
+    """Test that excluded directories (.git, .venv, etc.) are not indexed"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(temp_dir)
+
+            # Create .git directory with a file
+            os.makedirs(".git/objects")
+            with open(".git/config", "w") as f:
+                f.write("[core]\n    repositoryformatversion = 0\n")
+            with open(".git/objects/testfile", "w") as f:
+                f.write("some git object content")
+
+            # Create .venv directory with Python files
+            os.makedirs(".venv/lib/python3.13/site-packages")
+            with open(".venv/lib/python3.13/site-packages/test.py", "w") as f:
+                f.write("# Python package file\nprint('hello')")
+
+            # Create node_modules directory
+            os.makedirs("node_modules/some-package")
+            with open("node_modules/some-package/index.js", "w") as f:
+                f.write("// JavaScript file\nconsole.log('test');")
+
+            # Create legitimate files that should be indexed
+            with open("README.md", "w") as f:
+                f.write("# README\nThis should be indexed")
+            with open("script.py", "w") as f:
+                f.write("# Script\nprint('this should be indexed')")
+
+            # Create config with default excluded directories
+            config = {
+                "version": "1.0",
+                "index_dir": ".tantivy-data",
+                "global_patterns": {"include": ["*.*"], "exclude": []},
+                "index_dirs": [
+                    ".",
+                    {"path": ".git", "exclude": True},
+                    {"path": ".venv", "exclude": True},
+                    {"path": "node_modules", "exclude": True},
+                ],
+                "auto_hook": False,
+            }
+
+            config_path = os.path.join(temp_dir, ".tantivy2agents.json")
+            with open(config_path, "w") as f:
+                json.dump(config, f)
+
+            # Create agent and get files for indexing
+            agent = TantivyAgent(config_path=config_path)
+            files, _ = agent._get_files_for_indexing()
+
+            # Convert to relative paths for easier checking
+            rel_files = [os.path.relpath(f, temp_dir) for f in files]
+
+            # Check that legitimate files are included
+            assert "README.md" in rel_files, "README.md should be indexed"
+            assert "script.py" in rel_files, "script.py should be indexed"
+
+            # Check that excluded directory files are NOT included
+            git_files = [f for f in rel_files if f.startswith(".git/")]
+            venv_files = [f for f in rel_files if f.startswith(".venv/")]
+            node_files = [f for f in rel_files if f.startswith("node_modules/")]
+
+            assert len(git_files) == 0, f"Found files in .git/: {git_files}"
+            assert len(venv_files) == 0, f"Found files in .venv/: {venv_files}"
+            assert len(node_files) == 0, f"Found files in node_modules/: {node_files}"
+
+        finally:
+            os.chdir(old_cwd)
+
+
 def main():
     """Run all tests"""
     print("Running Tantivy Agent Tests...")
@@ -1115,6 +1187,7 @@ def main():
         ("JSON Empty Title", test_json_empty_title),
         ("Description Output", test_description_output),
         ("Description Hidden", test_description_hidden),
+        ("Excluded Directories", test_excluded_directories),
     ]
 
     passed = 0

@@ -457,6 +457,16 @@ class TantivyAgent:
         # First expand glob patterns in index_dirs
         expanded_dirs = self._expand_glob_patterns(self.config["index_dirs"])
 
+        # Build list of excluded directory names for os.walk() filtering
+        excluded_dir_names = set()
+        for dir_config in expanded_dirs:
+            if dir_config.get("exclude", False):
+                # Get just the directory name (not the full path)
+                dir_path = dir_config["path"]
+                # Handle both relative paths and simple names
+                dir_name = os.path.basename(dir_path.rstrip("/"))
+                excluded_dir_names.add(dir_name)
+
         for dir_config in expanded_dirs:
             # Skip if this is marked as excluded
             if dir_config.get("exclude", False):
@@ -504,6 +514,10 @@ class TantivyAgent:
             else:
                 # Directory - walk through it
                 for root, dirs, filenames in os.walk(full_dir_path):
+                    # Filter out excluded directories to prevent os.walk() from descending into them
+                    # Modify dirs in-place - os.walk() uses this to determine which subdirs to visit
+                    dirs[:] = [d for d in dirs if d not in excluded_dir_names]
+
                     for filename in filenames:
                         file_path = os.path.join(root, filename)
                         rel_path = os.path.relpath(file_path, self.project_root)

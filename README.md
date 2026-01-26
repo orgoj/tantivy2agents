@@ -162,6 +162,8 @@ For most projects, the recommended configuration indexes all text files except c
 - `"."` - Index entire project from root (prevents duplicates)
 - `"*.*"` - Include all files, then filter with exclude patterns
 - Common directories excluded (`.git`, `node_modules`, `.venv`, etc.)
+  - **Directory exclusion**: Directories marked with `"exclude": true` are completely skipped during directory traversal, preventing indexing of all files within them
+  - This is more efficient than file-level exclusion patterns as it avoids scanning these directories entirely
 - Binary files excluded (images, executables, archives, etc.)
 - Temporary files excluded (`.tmp`, `*~`, `.bak`, etc.)
 
