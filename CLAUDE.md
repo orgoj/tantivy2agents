@@ -1,6 +1,24 @@
 
 # Tantivy Agent Development Rules
 
+## Typer CLI Framework
+
+This project uses Typer for CLI interfaces. Key patterns:
+
+- **Commands**: All top-level, flat structure (no subcommand groups)
+- **Type hints**: Every parameter has type annotation (int, str, bool, Optional)
+- **Enums**: Use `Enum` for fixed choices (e.g., `OutputFormat`)
+- **Docstrings**: Primary source of help text - Typer auto-generates --help
+- **Errors**: Raise `CLIError` subclasses, never use `parser.error()`
+- **Format flags**: Single `--format` flag with Enum, NOT multiple shortcuts
+
+When adding new commands:
+1. Use `@app.command()` decorator
+2. Add type hints for ALL parameters
+3. Write comprehensive docstring with Examples section
+4. Raise appropriate `CLIError` subclass for errors
+5. Add tests in `tests/test_typer_cli.py`
+
 ## 🚨 TESTING & DEVELOPMENT PRINCIPLES
 
 ### ABSOLUTELY NO MANUAL TESTING

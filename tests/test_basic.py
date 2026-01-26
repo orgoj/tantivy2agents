@@ -13,6 +13,7 @@ import subprocess
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
 from tantivy2agents import TantivyAgent
+from tantivy2agents.exceptions import ValidationError
 
 
 def run_test(test_name, test_func):
@@ -562,11 +563,11 @@ def test_setup_command():
         with open(config_path, "w") as f:
             json.dump(config, f)
 
-        # Test setup command
-        result = run_cli_command(["setup"], cwd=temp_dir)
+        # Test skill-setup command (renamed from setup)
+        result = run_cli_command(["skill-setup"], cwd=temp_dir)
 
-        # setup should succeed (shows help about uvx/uv)
-        assert result.returncode == 0, f"setup failed: {result.stderr}"
+        # skill-setup should succeed (shows help about uvx/uv)
+        assert result.returncode == 0, f"skill-setup failed: {result.stderr}"
 
         # Should contain info about uv/uvx
         assert (
@@ -596,12 +597,12 @@ def test_cli_validation():
         with open(config_path, "w") as f:
             json.dump(config, f)
 
-        # Test empty search query
+        # Test empty search query - Typer now validates this as "Missing argument"
         result = run_cli_command(["search"], cwd=temp_dir)
         assert result.returncode != 0, "Empty search should fail"
         assert (
-            "empty" in result.stderr.lower()
-        ), f"Expected 'empty' error, got: {result.stderr}"
+            "missing" in result.stderr.lower() or "required" in result.stderr.lower()
+        ), f"Expected 'missing/required' error, got: {result.stderr}"
 
         # Test invalid limit (negative)
         result = run_cli_command(["search", "test", "--limit", "-1"], cwd=temp_dir)
@@ -716,8 +717,8 @@ def test_search_filters_validation():
 
             try:
                 TantivyAgent()
-                assert False, "Should raise ValueError for non-list filters"
-            except ValueError as e:
+                assert False, "Should raise ValidationError for non-list filters"
+            except ValidationError as e:
                 assert "must be a list" in str(e)
 
             # Test missing paths field
@@ -731,8 +732,8 @@ def test_search_filters_validation():
 
             try:
                 TantivyAgent()
-                assert False, "Should raise ValueError for missing paths"
-            except ValueError as e:
+                assert False, "Should raise ValidationError for missing paths"
+            except ValidationError as e:
                 assert "missing required 'paths'" in str(e)
 
             # Test paths not a list
@@ -746,8 +747,8 @@ def test_search_filters_validation():
 
             try:
                 TantivyAgent()
-                assert False, "Should raise ValueError for non-list paths"
-            except ValueError as e:
+                assert False, "Should raise ValidationError for non-list paths"
+            except ValidationError as e:
                 assert "paths must be a non-empty list" in str(e)
 
             # Test empty paths list
@@ -761,8 +762,8 @@ def test_search_filters_validation():
 
             try:
                 TantivyAgent()
-                assert False, "Should raise ValueError for empty paths"
-            except ValueError as e:
+                assert False, "Should raise ValidationError for empty paths"
+            except ValidationError as e:
                 assert "paths must be a non-empty list" in str(e)
         finally:
             os.chdir(old_cwd)
@@ -810,21 +811,21 @@ def test_output_formats():
         assert "SCORE:" in result.stdout, "Should have SCORE"
         assert "---" in result.stdout, "Should have separator"
 
-        # Test -j (JSON)
-        result = run_cli_command(["search", "test", "-j"], cwd=temp_dir)
-        assert result.returncode == 0, f"Search -j failed: {result.stderr}"
-        assert '"query":' in result.stdout, "-j output should be JSON"
-        assert '"results":' in result.stdout, "-j should have results array"
+        # Test --format json
+        result = run_cli_command(["search", "test", "--format", "json"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search --format json failed: {result.stderr}"
+        assert '"query":' in result.stdout, "JSON output should have query"
+        assert '"results":' in result.stdout, "JSON should have results array"
 
-        # Test -T (explicit structured text)
-        result = run_cli_command(["search", "test", "-T"], cwd=temp_dir)
-        assert result.returncode == 0, f"Search -T failed: {result.stderr}"
-        assert "### FILE:" in result.stdout, "-T output should have FILE marker"
+        # Test --format text (explicit structured text)
+        result = run_cli_command(["search", "test", "--format", "text"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search --format text failed: {result.stderr}"
+        assert "### FILE:" in result.stdout, "Text output should have FILE marker"
 
-        # Test -c (CSV)
-        result = run_cli_command(["search", "test", "-c"], cwd=temp_dir)
-        assert result.returncode == 0, f"Search -c failed: {result.stderr}"
-        assert "Score,Path,Title" in result.stdout, "-c output should be CSV"
+        # Test --format csv
+        result = run_cli_command(["search", "test", "--format", "csv"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search --format csv failed: {result.stderr}"
+        assert "Score,Path,Title" in result.stdout, "CSV output should have headers"
 
 
 def test_json_empty_title():
@@ -863,7 +864,9 @@ def test_json_empty_title():
         assert result.returncode == 0, f"Index failed: {result.stderr}"
 
         # Search with JSON output and verify title is empty, not "No title"
-        result = run_cli_command(["search", "content", "-j"], cwd=temp_dir)
+        result = run_cli_command(
+            ["search", "content", "--format", "json"], cwd=temp_dir
+        )
         assert result.returncode == 0, f"Search failed: {result.stderr}"
         assert '"No title"' not in result.stdout, "Should not have 'No title' fallback"
         # Parse JSON to verify empty title
@@ -919,14 +922,14 @@ This is test content about testing.
         assert result.returncode == 0, f"Index failed: {result.stderr}"
 
         # Test text output contains DESCRIPTION
-        result = run_cli_command(["search", "test", "-T"], cwd=temp_dir)
+        result = run_cli_command(["search", "test", "--format", "text"], cwd=temp_dir)
         assert result.returncode == 0, f"Search failed: {result.stderr}"
         assert "DESCRIPTION:" in result.stdout, "Text output should have DESCRIPTION"
         assert "comprehensive guide" in result.stdout, "Should contain description text"
 
         # Test JSON output contains description
-        result = run_cli_command(["search", "test", "-j"], cwd=temp_dir)
-        assert result.returncode == 0, f"Search -j failed: {result.stderr}"
+        result = run_cli_command(["search", "test", "--format", "json"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search --format json failed: {result.stderr}"
         output_data = json.loads(result.stdout)
         assert (
             "description" in output_data["results"][0]
@@ -936,8 +939,8 @@ This is test content about testing.
         ), "JSON should contain description"
 
         # Test CSV output contains Description header
-        result = run_cli_command(["search", "test", "-c"], cwd=temp_dir)
-        assert result.returncode == 0, f"Search -c failed: {result.stderr}"
+        result = run_cli_command(["search", "test", "--format", "csv"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search --format csv failed: {result.stderr}"
         assert "Description" in result.stdout, "CSV header should have Description"
 
 
@@ -986,23 +989,23 @@ This is test content about testing.
         assert result.returncode == 0, f"Index failed: {result.stderr}"
 
         # Test text output does NOT contain DESCRIPTION
-        result = run_cli_command(["search", "test", "-T"], cwd=temp_dir)
+        result = run_cli_command(["search", "test", "--format", "text"], cwd=temp_dir)
         assert result.returncode == 0, f"Search failed: {result.stderr}"
         assert (
             "DESCRIPTION:" not in result.stdout
         ), "Text output should NOT have DESCRIPTION when hidden"
 
         # Test JSON output does NOT contain description field
-        result = run_cli_command(["search", "test", "-j"], cwd=temp_dir)
-        assert result.returncode == 0, f"Search -j failed: {result.stderr}"
+        result = run_cli_command(["search", "test", "--format", "json"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search --format json failed: {result.stderr}"
         output_data = json.loads(result.stdout)
         assert (
             "description" not in output_data["results"][0]
         ), "JSON should NOT have description when hidden"
 
         # Test CSV output does NOT contain Description header
-        result = run_cli_command(["search", "test", "-c"], cwd=temp_dir)
-        assert result.returncode == 0, f"Search -c failed: {result.stderr}"
+        result = run_cli_command(["search", "test", "--format", "csv"], cwd=temp_dir)
+        assert result.returncode == 0, f"Search --format csv failed: {result.stderr}"
         assert (
             ",Description," not in result.stdout
         ), "CSV header should NOT have Description when hidden"

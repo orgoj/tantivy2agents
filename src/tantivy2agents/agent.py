@@ -18,6 +18,7 @@ import tantivy
 import yaml
 
 from .czech_stemmer import normalize_czech_text
+from .exceptions import ValidationError
 
 # Module logger
 logger = logging.getLogger(__name__)
@@ -192,7 +193,7 @@ class TantivyAgent:
     def _validate_search_filters(self, config: dict) -> None:
         """Validate search filter configuration.
 
-        Raises ValueError for invalid configuration.
+        Raises ValidationError for invalid configuration.
         """
         search_config = config.get("search", {})
         filters = search_config.get("filters")
@@ -201,23 +202,50 @@ class TantivyAgent:
             return  # No filters configured
 
         if not isinstance(filters, list):
-            raise ValueError("search.filters must be a list")
+            raise ValidationError(
+                message="search.filters must be a list",
+                parameter="search.filters",
+                expected="list",
+                got=type(filters).__name__,
+            )
 
         for i, f in enumerate(filters):
             if not isinstance(f, dict):
-                raise ValueError(f"search.filters[{i}] must be a dict")
+                raise ValidationError(
+                    message=f"search.filters[{i}] must be a dict",
+                    parameter=f"search.filters[{i}]",
+                    expected="dict",
+                    got=type(f).__name__,
+                )
 
             # Required: paths
             if "paths" not in f:
-                raise ValueError(f"search.filters[{i}] missing required 'paths' field")
+                raise ValidationError(
+                    message=f"search.filters[{i}] missing required 'paths' field",
+                    parameter=f"search.filters[{i}].paths",
+                    expected="non-empty list",
+                    got="missing",
+                )
 
             if not isinstance(f["paths"], list) or not f["paths"]:
-                raise ValueError(f"search.filters[{i}].paths must be a non-empty list")
+                raise ValidationError(
+                    message=f"search.filters[{i}].paths must be a non-empty list",
+                    parameter=f"search.filters[{i}].paths",
+                    expected="non-empty list",
+                    got=f"list with {len(f['paths'])} items"
+                    if isinstance(f["paths"], list)
+                    else type(f["paths"]).__name__,
+                )
 
             # Validate show_on_keywords if present
             keywords = f.get("show_on_keywords")
             if keywords is not None and not isinstance(keywords, list):
-                raise ValueError(f"search.filters[{i}].show_on_keywords must be a list")
+                raise ValidationError(
+                    message=f"search.filters[{i}].show_on_keywords must be a list",
+                    parameter=f"search.filters[{i}].show_on_keywords",
+                    expected="list",
+                    got=type(keywords).__name__,
+                )
 
     def _ensure_data_dir(self):
         """Ensure data directory exists and is in .gitignore"""

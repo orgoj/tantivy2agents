@@ -106,6 +106,7 @@ For advanced configuration (schema fields, search filters, encoding settings), s
 | `install` | Auto-detect project type and create config |
 | `index` | Build or update the search index |
 | `search "query"` | Search indexed documents |
+| `list` | List files that would be indexed (without creating index) |
 | `status` | Show index statistics |
 | `clear` | Clear the search index |
 | `config-example` | Show example configuration |
@@ -117,6 +118,32 @@ For advanced configuration (schema fields, search filters, encoding settings), s
 
 - Python 3.10+
 - Dependencies: `PyYAML`, `tantivy`, `charset-normalizer`
+
+## AI Agent Integration
+
+tantivy2agents is optimized for AI agents like Claude Code:
+
+- **Structured output**: JSON format for programmatic consumption
+- **File preview**: `list` command explores project structure without side effects
+- **Clear errors**: Structured error messages with hints via `TANTIVY_JSON_OUTPUT=true`
+- **Type hints**: Full type annotations enable introspection
+- **Predictable interface**: Consistent command structure
+
+### Examples:
+
+```bash
+# Preview files before indexing
+tantivy2agents list --pattern "*.md"
+
+# Get structured results
+tantivy2agents search "API" --format json -o results.json
+
+# Machine-readable errors
+TANTIVY_JSON_OUTPUT=true tantivy2agents search "" 2>&1 | jq .
+
+# Parseable JSON for AI agents
+tantivy2agents search "database schema" --format json | jq '.results[] | .path'
+```
 
 ## License
 

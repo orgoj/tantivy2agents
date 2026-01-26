@@ -1,172 +1,386 @@
-"""
-Tantivy Agent CLI - Command line interface for document indexing and search.
-"""
+"""Tantivy Agent CLI - Command line interface using Typer."""
 
-import argparse
+from enum import Enum
+from typing import Optional
 
-from . import __version__
+import typer
+from rich.console import Console
+
 from .agent import TantivyAgent
+from .exceptions import CLIError, ValidationError
+
+app = typer.Typer(
+    name="tantivy2agents",
+    help="Universal Tantivy Agent - Document indexing and search",
+    add_completion=False,
+    no_args_is_help=True,
+)
+
+console = Console()
 
 
-def main():
-    """Main entry point"""
-    parser = argparse.ArgumentParser(
-        description="Universal Tantivy Agent - Document indexing and search",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Commands:
-  install        Auto-detect project type and create config (recommended first step)
-  index          Build or update the search index
-  search         Search indexed documents
-  clear          Clear the search index
-  status         Show index statistics
-  config-example Show example configuration with explanations
-  encoding-info  Analyze file encodings in project
-  hook-clear     Mark index as outdated (used by Claude hooks)
-  skill-usage    Output usage documentation (daily commands)
-  skill-setup    Output setup documentation (configuration)
+class OutputFormat(str, Enum):
+    """Output format options."""
 
-Examples:
-  tantivy2agents install                    # Setup in current project
-  tantivy2agents install --target ../proj   # Setup in another project
-  tantivy2agents index                      # Build index
-  tantivy2agents index --force              # Rebuild from scratch
-  tantivy2agents search "my query"          # Search (structured text by default)
-  tantivy2agents search "api" --limit 5     # Limit results
-  tantivy2agents search "config" -j         # JSON output
-  tantivy2agents search "config" -c         # CSV output
-  tantivy2agents search "config" -o out.json # Save to file
-  tantivy2agents config-example             # Show config template
-  tantovy2agents status                     # Show index info
-  tantivy2agents skill-usage                # View usage documentation
-  tantivy2agents skill-usage -o guide.md    # Save usage guide
-  tantivy2agents skill-setup                # View setup documentation
+    json = "json"
+    csv = "csv"
+    text = "text"
 
-Configuration:
-  Config file: .tantivy2agents.json (in project root)
-  Run 'tantivy2agents config-example' to see full config template with comments.
-  Run 'tantivy2agents install' to auto-generate config for your project type.
-  Run 'tantivy2agents skill-usage' / 'skill-setup' to view documentation.
-        """,
-    )
 
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"tantivy2agents {__version__}",
-    )
+# =============================================================================
+# Core Commands
+# =============================================================================
 
-    parser.add_argument(
-        "command",
-        choices=[
-            "index",
-            "search",
-            "clear",
-            "install",
-            "hook-clear",
-            "encoding-info",
-            "setup",
-            "status",
-            "config-example",
-            "skill-usage",
-            "skill-setup",
-        ],
-        help="Command to execute",
-    )
 
-    parser.add_argument("query", nargs="*", help="Search query (for search command)")
-    parser.add_argument("--limit", type=int, help="Number of search results")
-    parser.add_argument("--force", action="store_true", help="Force rebuild index")
-    parser.add_argument("--config", help="Path to config file")
-    # Format arguments (mutually exclusive shortcuts)
-    parser.add_argument(
-        "--format",
-        "-f",
-        choices=["json", "csv", "text"],
-        help="Output format (default: text)",
-    )
-    parser.add_argument("-j", "--json", action="store_true", help="JSON output")
-    parser.add_argument(
-        "-T", "--text", action="store_true", help="Structured text output (default)"
-    )
-    parser.add_argument("-c", "--csv", action="store_true", help="CSV output")
-    parser.add_argument("--output", "-o", help="Output file for exported results")
-    parser.add_argument(
-        "--target",
-        "-t",
-        help="Target directory for installation (install command only)",
-    )
-    parser.add_argument(
-        "--no-config",
-        action="store_true",
-        help="Skip config creation (install command only)",
-    )
-    parser.add_argument(
-        "--dirs", action="store_true", help="Show directories that will be processed"
-    )
-    parser.add_argument(
-        "--files", action="store_true", help="Show files that will be processed"
-    )
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Enable debug output"
-    )
-    parser.add_argument(
-        "--quiet", "-q", action="store_true", help="Suppress informational output"
-    )
+@app.command()
+def index(
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Force rebuild from scratch"
+    ),
+    show_dirs: bool = typer.Option(
+        False, "--dirs", help="Show directories being processed"
+    ),
+    show_files: bool = typer.Option(
+        False, "--files", help="Show files being processed"
+    ),
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """Build or update the search index.
 
-    args = parser.parse_args()
+    Analyzes files and builds/updates the Tantivy search index.
+    Only reindexes when files have changed (unless --force).
 
-    # Input validation
-    if args.command == "search":
-        query = " ".join(args.query) if args.query else ""
-        if not query.strip():
-            parser.error("Search query cannot be empty")
-        if args.limit is not None and (args.limit < 1 or args.limit > 10000):
-            parser.error("Limit must be between 1 and 10000")
+    Examples:
+        tantivy2agents index
+        tantivy2agents index --force
+        tantivy2agents index --dirs --files
+    """
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent.index_command(force=force, show_dirs=show_dirs, show_files=show_files)
 
-    # Initialize agent
-    agent = TantivyAgent(
-        config_path=args.config,
-        verbose=args.verbose,
-        quiet=args.quiet,
-    )
 
-    # Execute command
-    if args.command == "index":
-        agent.index_command(
-            force=args.force, show_dirs=args.dirs, show_files=args.files
+@app.command()
+def search(
+    query: str = typer.Argument(..., help="Search query"),
+    limit: Optional[int] = typer.Option(
+        None, "--limit", "-l", min=1, max=10000, help="Max results"
+    ),
+    format: OutputFormat = typer.Option(
+        OutputFormat.text, "--format", "-f", help="Output format"
+    ),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Save to file"),
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """Search indexed documents.
+
+    Searches the Tantivy index for documents matching the query.
+    Results are ranked by relevance (BM25 algorithm).
+
+    Examples:
+        tantivy2agents search "API endpoint"
+        tantivy2agents search "database" --limit 5
+        tantivy2agents search "config" --format json
+        tantivy2agents search "api" -f csv -o results.csv
+    """
+    # Validation
+    if not query.strip():
+        raise ValidationError(
+            message="Search query cannot be empty",
+            parameter="query",
+            got="(empty)",
         )
-    elif args.command == "search":
-        query = " ".join(args.query) if args.query else ""
-        # Determine output format from arguments (default: text)
-        output_format = "text"  # default
-        if args.format:
-            output_format = args.format
-        elif args.json:
-            output_format = "json"
-        elif args.csv:
-            output_format = "csv"
-        # -T/--text keeps the default
-        agent.search_command(query, args.limit, output_format, args.output)
-    elif args.command == "clear":
-        agent.clear_command()
-    elif args.command == "install":
-        create_config = not args.no_config
-        agent.install_command(args.target, create_config)
-    elif args.command == "hook-clear":
-        agent.hook_clear_command()
-    elif args.command == "encoding-info":
-        agent.encoding_info_command()
-    elif args.command == "setup":
-        agent.setup_command()
-    elif args.command == "status":
-        agent.status_command()
-    elif args.command == "config-example":
-        agent.config_example_command()
-    elif args.command == "skill-usage":
-        agent.skill_usage_command(args.output)
-    elif args.command == "skill-setup":
-        agent.skill_setup_command(args.output)
+
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent.search_command(query, limit, format.value, output)
+
+
+@app.command()
+def clear(
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """Clear the search index.
+
+    Removes all indexed data. Next search will require rebuilding the index.
+
+    Example:
+        tantivy2agents clear
+    """
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent.clear_command()
+
+
+@app.command()
+def status(
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """Show index statistics.
+
+    Displays information about the search index including document count,
+    index size, and last update time.
+
+    Example:
+        tantivy2agents status
+    """
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent.status_command()
+
+
+# =============================================================================
+# Setup Commands
+# =============================================================================
+
+
+@app.command()
+def install(
+    target: Optional[str] = typer.Option(
+        None, "--target", "-t", help="Target directory"
+    ),
+    no_config: bool = typer.Option(False, "--no-config", help="Skip config creation"),
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """Auto-detect project type and create configuration.
+
+    Analyzes the project structure and creates an optimal configuration
+    for the detected project type (Python, Node.js, Generic, etc.).
+
+    Examples:
+        tantivy2agents install
+        tantivy2agents install --target ../other-project
+        tantivy2agents install --no-config
+    """
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    create_config = not no_config
+    agent.install_command(target, create_config)
+
+
+@app.command()
+def config_example(
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """Show example configuration with explanations.
+
+    Outputs a template configuration file with detailed comments
+    explaining each option.
+
+    Example:
+        tantivy2agents config-example
+    """
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent.config_example_command()
+
+
+@app.command()
+def encoding_info(
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """Analyze file encodings in project.
+
+    Detects and displays character encodings for files that would be indexed.
+    Useful for troubleshooting encoding-related issues.
+
+    Example:
+        tantovy2agents encoding-info
+    """
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent.encoding_info_command()
+
+
+# =============================================================================
+# Hook Commands (Claude Integration)
+# =============================================================================
+
+
+@app.command()
+def hook_clear(
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """Mark index as outdated (used by Claude hooks).
+
+    Internal command used by Claude Code hooks to trigger reindexing
+    after files are modified.
+
+    Example:
+        tantivy2agents hook-clear
+    """
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent.hook_clear_command()
+
+
+# =============================================================================
+# Documentation Commands
+# =============================================================================
+
+
+@app.command()
+def skill_usage(
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Save to file"),
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """Output usage documentation (daily commands).
+
+    Displays comprehensive usage guide with examples and best practices.
+
+    Examples:
+        tantivy2agents skill-usage
+        tantivy2agents skill-usage -o guide.md
+    """
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent.skill_usage_command(output)
+
+
+@app.command()
+def skill_setup(
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Save to file"),
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """Output setup documentation (configuration).
+
+    Displays detailed setup and configuration guide.
+
+    Examples:
+        tantivy2agents skill-setup
+        tantivy2agents skill-setup -o setup.md
+    """
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent.skill_setup_command(output)
+
+
+# =============================================================================
+# New Command: File Preview
+# =============================================================================
+
+
+@app.command(name="list")
+def list_files(
+    pattern: Optional[str] = typer.Option(
+        None, "--pattern", "-p", help="Glob pattern filter"
+    ),
+    size: bool = typer.Option(False, "--size", "-s", help="Show file sizes"),
+    encoding: bool = typer.Option(
+        False, "--encoding", "-e", help="Show file encodings"
+    ),
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """List files that would be indexed (without creating index).
+
+    Use this to preview what files will be processed before running 'index'.
+    Useful for understanding what will be indexed and testing patterns.
+
+    Examples:
+        tantivy2agents list
+        tantivy2agents list --pattern "*.md"
+        tantivy2agents list --size --encoding
+    """
+    import os
+    import fnmatch
+    from charset_normalizer import detect
+
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    files, _ = agent._get_files_for_indexing()
+
+    # Apply pattern filter if specified
+    if pattern:
+        files = [f for f in files if fnmatch.fnmatch(os.path.basename(f), pattern)]
+
+    # Display files
+    for file_path in files:
+        rel_path = os.path.relpath(file_path, agent.project_root)
+        line = f"  {rel_path}"
+
+        if size:
+            file_size = os.path.getsize(file_path)
+            line += f" ({file_size:,} bytes)"
+
+        if encoding:
+            with open(file_path, "rb") as f:
+                raw_data = f.read(1024)  # Read first 1KB for detection
+            result = detect(raw_data)
+            enc = result["encoding"] or "unknown"
+            confidence = result["confidence"] or 0
+            line += f" [{enc} ({confidence:.0%})]"
+
+        console.print(line)
+
+    console.print(f"\n[bold]Total:[/bold] {len(files)} files")
+
+
+# =============================================================================
+# Main Entry Point
+# =============================================================================
+
+
+def main() -> None:
+    """Main entry point for the CLI."""
+    try:
+        app()
+    except CLIError as e:
+        e.exit()
 
 
 if __name__ == "__main__":

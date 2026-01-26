@@ -8,15 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Comprehensive code review documentation (CODE_REVIEW.md)
-- Prioritized TODO list (TODO.md)
-- LICENSE file (MIT License)
-- This CHANGELOG file
-- CONTRIBUTING guide
+- `list` command to preview files that will be indexed without creating an index
+- Structured exception system with dual JSON/human output for better AI integration
+- AI Agent Integration section in README with machine-readable examples
+
+### Changed
+- **BREAKING**: Migrated CLI from argparse to Typer framework
+- **BREAKING**: Removed deprecated format flags (`-j`, `-c`, `-T`)
+  - Use single `--format` flag with values: `json`, `csv`, `text`
+  - Example: `tantivy2agents search "query" --format json`
+- Auto-generated help text from docstrings (no hardcoded help)
+- Improved error messages with emojis and actionable hints
+- Enhanced validation with structured errors (JSON when `TANTIVY_JSON_OUTPUT=true`)
+
+### Technical
+- Added dependencies: `typer>=0.12.0`, `rich>=13.0.0`
+- Implemented `OutputFormat` Enum for type-safe format validation
+- Clean dependency injection pattern (no global state)
+- 67 automated tests (100% passing)
+- Comprehensive Typer CLI test coverage
+
+### Removed
+- Prioritized TODO list (TODO.md) - completed CLI redesign
 
 ### Security
 - Identified critical security vulnerabilities requiring immediate attention
 - See CODE_REVIEW.md for complete security analysis
+
+## [0.6.0] - 2026-01-26
 
 ## [1.0.0] - 2025-11-22
 
