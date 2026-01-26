@@ -1196,7 +1196,7 @@ class TantivyAgent:
         filtered = []
 
         for score, doc_address, doc in results:
-            file_path = doc["path"][0] if doc.get("path") else ""
+            file_path = doc["path"][0] if doc["path"] else ""
             if not file_path:
                 continue  # Skip documents without path
 
