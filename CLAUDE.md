@@ -9,6 +9,8 @@ Keep this file short. Put user-facing docs in `README.md`, release history in
 - Test suite: `mise run test`
 - Lint/format hooks: `mise run pre-commit`
 - User install: `mise run install-user`
+- `uv` commands: run with sandbox escalation in Codex. The sandbox repeatedly
+  blocks DNS/PyPI/build dependency fetches even with `UV_CACHE_DIR=/tmp/uv-cache`.
 
 ## Project Rules
 
@@ -20,6 +22,9 @@ Keep this file short. Put user-facing docs in `README.md`, release history in
 - Add permanent tests in `tests/` for bug fixes and behavior changes.
 - Keep `README.md` and `CHANGELOG.md` current when behavior changes.
 - Bump both `pyproject.toml` and `src/tantivy2agents/__init__.py` for releases.
+- Do not treat sandboxed `uv` DNS/PyPI failures as project failures. Rerun the
+  same `uv lock` or `uv run ...` command with escalation instead of debugging
+  dependencies.
 
 ## Tantivy API Gotchas
 
