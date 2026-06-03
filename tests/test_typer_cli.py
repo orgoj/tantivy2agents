@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from tantivy2agents.cli import app
-from tantivy2agents.exceptions import IndexNotFoundError, ValidationError
+from tantivy2agents.exceptions import ValidationError
 
 runner = CliRunner()
 SRC_PATH = Path(__file__).resolve().parents[1] / "src"
@@ -47,10 +47,24 @@ class StubAgent:
         StubAgent.calls.append(("init", config_path, verbose, quiet))
 
     def search_command(
-        self, query, limit, output_format, output, allow_outside_output=False
+        self,
+        query,
+        limit,
+        output_format,
+        output,
+        allow_outside_output=False,
+        show_snippets=False,
     ):
         StubAgent.calls.append(
-            ("search", query, limit, output_format, output, allow_outside_output)
+            (
+                "search",
+                query,
+                limit,
+                output_format,
+                output,
+                allow_outside_output,
+                show_snippets,
+            )
         )
         print(f"searched {query} as {output_format}")
 
@@ -182,10 +196,17 @@ def test_search_format_option_dispatches_to_agent(stub_agent):
         assert f"searched test as {fmt}" in result.stdout
 
     assert [call for call in stub_agent.calls if call[0] == "search"] == [
-        ("search", "test", None, "json", None, False),
-        ("search", "test", None, "csv", None, False),
-        ("search", "test", None, "text", None, False),
+        ("search", "test", None, "json", None, False, False),
+        ("search", "test", None, "csv", None, False, False),
+        ("search", "test", None, "text", None, False, False),
     ]
+
+
+def test_search_snippets_option_dispatches_to_agent(stub_agent):
+    """Test --snippets enables snippet output in agent dispatch."""
+    result = runner.invoke(app, ["search", "test", "--snippets"])
+    assert result.exit_code == 0
+    assert ("search", "test", None, "text", None, False, True) in stub_agent.calls
 
 
 def test_format_enum_validation():
@@ -389,51 +410,42 @@ def test_index_dirs_and_files_options_show_concrete_paths():
 
 
 def test_missing_index_behavior_in_text_and_json_env_modes():
-    """Test missing index raises through the Typer app."""
+    """Test missing index is built automatically through the Typer app."""
     with runner.isolated_filesystem():
         create_search_project()
 
         text_result = runner.invoke(app, ["search", "testing"])
-        assert text_result.exit_code == 1
-        assert text_result.stdout == ""
-        assert isinstance(text_result.exception, IndexNotFoundError)
+        assert text_result.exit_code == 0
+        assert "### FILE: docs/guide.md" in text_result.stdout
 
         env = os.environ.copy()
         env["TANTIVY_JSON_OUTPUT"] = "true"
         json_env_result = runner.invoke(app, ["search", "testing"], env=env)
-        assert json_env_result.exit_code == 1
-        assert json_env_result.stdout == ""
-        assert isinstance(json_env_result.exception, IndexNotFoundError)
+        assert json_env_result.exit_code == 0
+        assert "### FILE: docs/guide.md" in json_env_result.stdout
 
 
 def test_empty_index_directory_edge_case_is_explicit():
-    """Test current behavior when an index directory exists but is unusable."""
+    """Test an unusable index directory is rebuilt automatically."""
     with runner.isolated_filesystem():
         create_search_project()
         os.makedirs(".tantivy-data/idx", exist_ok=True)
 
         result = runner.invoke(app, ["search", "testing"])
-        assert result.exit_code == 1
-        assert result.stdout == ""
-        assert isinstance(result.exception, IndexNotFoundError)
+        assert result.exit_code == 0
+        assert "### FILE: docs/guide.md" in result.stdout
 
 
-def test_missing_index_json_error_from_main_entrypoint():
-    """Test TANTIVY_JSON_OUTPUT formats missing index errors as JSON."""
+def test_missing_index_auto_build_from_main_entrypoint():
+    """Test main entrypoint auto-builds a missing index."""
     with runner.isolated_filesystem():
         create_search_project()
 
         result = run_module_command(
             ["search", "testing"], env={"TANTIVY_JSON_OUTPUT": "true"}
         )
-        assert result.returncode == 1
-        assert result.stdout == ""
-
-        error_data = json.loads(result.stderr)
-        assert error_data["success"] is False
-        assert error_data["error"]["message"] == "Search index not found or outdated"
-        assert error_data["error"]["exit_code"] == 1
-        assert error_data["error"]["context"]["index_dir"].endswith(".tantivy-data/idx")
+        assert result.returncode == 0
+        assert "### FILE: docs/guide.md" in result.stdout
 
 
 def test_malformed_config_json_error_from_main_entrypoint():

@@ -7,6 +7,11 @@ description: Setup and configuration of tantivy2agents. Use when installing, con
 
 Setup and configuration guide for Tantivy Agent document indexing and search.
 
+Configure this per repository. Durable knowledge should live in committed
+project files: guides, runbooks, server notes, playbooks, previous incidents,
+and other docs shared by all users of the repo. Do not replace those files with
+an external memory layer.
+
 ## Installation
 
 ### Method 1: uvx (Recommended - No Installation)
@@ -96,7 +101,7 @@ Configuration is stored in `.tantivy2agents.json` in project root.
 {
   "version": "1.0",
   "index_dir": ".tantivy-data",
-  "index_dirs": ["docs", "guides"]
+  "index_dirs": ["docs", "guides", "runbooks"]
 }
 ```
 
@@ -145,6 +150,7 @@ Configuration is stored in `.tantivy2agents.json` in project root.
   "index_dirs": [
     "docs",
     "guides",
+    "runbooks",
     {"path": ".git", "exclude": true}
   ]
 }
@@ -224,7 +230,9 @@ Search behavior settings.
 - **filters** - Path-based result filters (see below)
 
 ### Search Filters
-Hide documents from specific paths unless query contains keywords.
+Hide documents from specific paths unless query contains keywords. This is how a
+repo can define its own incident behavior; `tantivy2agents` does not know what
+counts as an incident for every project.
 
 ```json
 "filters": [
@@ -246,6 +254,45 @@ Hide documents from specific paths unless query contains keywords.
 - Results from matching paths are hidden unless query contains a keyword
 - Empty `show_on_keywords` = always hidden
 - Keyword matching is case-insensitive
+
+## Server-Management Repositories
+
+For operations repositories, tune `index_dirs` to the actual shared docs in that
+repo. Common examples:
+
+```json
+"index_dirs": [
+  "guides",
+  "runbooks",
+  "servers",
+  "playbooks",
+  "production",
+  {"path": ".git", "exclude": true},
+  {"path": ".tantivy-data", "exclude": true}
+]
+```
+
+If the repo has incident history, configure it explicitly:
+
+```json
+"search": {
+  "default_limit": 5,
+  "show_description": true,
+  "filters": [
+    {
+      "name": "incidents",
+      "paths": ["incidents/"],
+      "hidden": false,
+      "show_on_keywords": ["incident", "outage", "rollback"]
+    }
+  ]
+}
+```
+
+For each repository, add a repo-local agent skill or instruction that tells the
+agent how to use that project's documentation layout. Keep it specific: which
+paths contain guides, which paths contain incident history, which metadata fields
+matter, and which searches should be run before changing servers.
 
 ### encoding
 File encoding detection settings.
@@ -316,6 +363,12 @@ The agent automatically adds index directory to `.gitignore`:
 - Check `.claude/settings.json` exists
 - Verify `auto_hook: true` in config
 - Run `tantivy2agents install` again
+
+**Agent does not know which docs to search:**
+- Add a repo-local skill/instruction describing the repository documentation
+  layout.
+- Include example searches for guides, server names, services, and incidents.
+- Keep the source of truth in committed project files.
 
 ## Getting More Help
 

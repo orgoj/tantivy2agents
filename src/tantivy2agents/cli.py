@@ -102,6 +102,11 @@ def search(
         "--allow-outside-output",
         help="Allow --output to write outside the project root",
     ),
+    snippets: bool = typer.Option(
+        False,
+        "--snippets",
+        help="Include a short matching content snippet in search results",
+    ),
     config: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file"
     ),
@@ -130,7 +135,14 @@ def search(
         )
 
     agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
-    agent.search_command(query, limit, format.value, output, allow_outside_output)
+    agent.search_command(
+        query,
+        limit,
+        format.value,
+        output,
+        allow_outside_output,
+        show_snippets=snippets,
+    )
 
 
 @app.command()

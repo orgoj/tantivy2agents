@@ -45,7 +45,8 @@ The current implementation already matches the core purpose in several ways:
 - `list` previews what will be indexed before writing an index;
 - index and output paths are constrained to the project root unless explicitly
   overridden;
-- search results support compact text, JSON, and CSV;
+- search results support compact text, JSON, CSV, and opt-in snippets;
+- missing, stale, or unusable indexes are refreshed automatically by `search`;
 - Markdown frontmatter can improve ranking and filtering;
 - Czech text normalization helps local documentation written in Czech;
 - packaged `skill-usage` and `skill-setup` commands make the installed tool
@@ -54,13 +55,10 @@ The current implementation already matches the core purpose in several ways:
 The most useful future improvements should strengthen agent usability rather
 than broaden the tool into generic search:
 
-- add a first-class "agent query" output shape with stable, minimal fields and
-  snippets from matched guides/incidents;
-- make stale-index handling visible in `search` so agents know when to reindex;
-- expose safer defaults for common server-management documentation layouts
-  through generated config profiles;
 - add small quality checks for configs that accidentally index too much or too
   little;
+- add more examples for project-local skills that teach agents how to use each
+  repository's own documentation layout;
 - continue decomposing `agent.py` only where it reduces risk in CLI behavior or
   testability.
 
@@ -118,6 +116,7 @@ tantivy2agents index --force
 tantivy2agents index --dirs --files
 tantivy2agents list --pattern "*.md" --size --encoding
 tantivy2agents search "api config" --limit 5
+tantivy2agents search "nginx restart" --snippets
 tantivy2agents search "api config" --format json --output results.json
 tantivy2agents search "api config" --output /tmp/results.json --allow-outside-output
 TANTIVY_JSON_OUTPUT=true tantivy2agents search "" 2>&1
@@ -125,7 +124,8 @@ TANTIVY_JSON_OUTPUT=true tantivy2agents search "" 2>&1
 
 `search --format` accepts `text`, `json`, and `csv`. The default is compact
 `text`: it shows path, title, score, tags, and servers. Frontmatter
-descriptions are opt-in with `search.show_description: true`.
+descriptions are opt-in with `search.show_description: true`. Matching content
+snippets are opt-in per query with `--snippets`.
 
 Output files must stay inside the project root unless
 `--allow-outside-output` is provided.
@@ -138,7 +138,7 @@ Minimal `.tantivy2agents.json`:
 {
   "version": "1.0",
   "index_dir": ".tantivy-data",
-  "index_dirs": ["docs", "guides", "*.md"]
+  "index_dirs": ["docs", "guides", "runbooks", "*.md"]
 }
 ```
 
@@ -158,6 +158,13 @@ Useful fields:
 - `auto_hook`: whether `install` should add Claude Code hooks.
 
 Run `tantivy2agents config-example` for the full template.
+
+For server-management repositories, keep the project-specific knowledge in
+committed files and tune `.tantivy2agents.json` to that layout. Typical include
+paths are `guides/`, `runbooks/`, `servers/`, `playbooks/`, and project-specific
+incident directories. Incident behavior is configuration, not built-in policy:
+use `search.filters` when a repo wants to hide or reveal incident paths by
+keyword.
 
 ## Markdown Metadata
 

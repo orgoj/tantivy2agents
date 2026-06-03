@@ -19,7 +19,7 @@ def default_config() -> dict[str, Any]:
         "version": "1.0",
         "index_dir": ".tantivy-data",
         "global_patterns": {
-            "include": ["*.*"],
+            "include": ["*.md", "*.txt", "*.rst"],
             "exclude": [
                 "*.tmp",
                 "*~",
@@ -387,6 +387,8 @@ def config_example_text() -> str:
   "index_dirs": [
     ".",                                    // Current directory
     "docs/**/*.md",                         // All .md files in docs/
+    "guides/**/*.md",                       // Guides for project work
+    "runbooks/**/*.md",                     // Operational runbooks
     {"path": ".git", "exclude": true},      // Exclude .git directory
     {"path": "node_modules", "exclude": true},
     {"path": ".venv", "exclude": true},
@@ -434,6 +436,7 @@ QUICK START:
   2. Or create .tantivy2agents.json manually with above template
   3. Run 'tantivy2agents index' to build the index
   4. Run 'tantivy2agents search "your query"' to search
+  5. Use 'tantivy2agents search "your query" --snippets' when deciding what to read
 
 PROJECT TYPE AUTO-DETECTION:
   - Python: indexes docs/, src/**/*.md, *.md (excludes .venv, __pycache__)
@@ -452,4 +455,10 @@ MARKDOWN FRONTMATTER:
   Document content here...
 
   The description field is shown in search results when show_description is true.
+
+SERVER-MANAGEMENT REPOSITORIES:
+  Keep durable knowledge in committed files and tune index_dirs to the repo:
+  guides/, runbooks/, servers/, playbooks/, production/, incidents/, etc.
+  Incident handling is project configuration via search.filters, not built-in
+  global policy.
 """

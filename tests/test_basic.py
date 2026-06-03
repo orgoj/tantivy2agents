@@ -185,6 +185,7 @@ def test_config_module_defaults_match_agent_defaults():
 
             assert defaults["search"]["default_limit"] == 5
             assert defaults["search"]["show_description"] is False
+            assert defaults["global_patterns"]["include"] == ["*.md", "*.txt", "*.rst"]
             assert agent.config == defaults
             assert "servers" in defaults["schema_fields"]
         finally:
@@ -740,6 +741,49 @@ def test_hook_clear_command():
             index_info = json.load(f)
         assert index_info.get("outdated") is True, "Index should be marked as outdated"
 
+        # Search should refresh stale indexes automatically.
+        result = run_cli_command(["search", "Content"], cwd=temp_dir)
+        assert result.returncode == 0, result.stderr
+        assert "### FILE: docs/test.md" in result.stdout
+
+        with open(index_info_path) as f:
+            refreshed_info = json.load(f)
+        assert "outdated" not in refreshed_info, "Search should refresh stale metadata"
+
+
+def test_search_auto_indexes_missing_index():
+    """Test search builds the index automatically when it is missing."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md"], "exclude": []},
+            "index_dirs": ["docs/"],
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "description": {"weight": 1.5, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "tags": {"weight": 1.5, "tokenizer": "default"},
+                "servers": {"weight": 1.5, "tokenizer": "default"},
+                "path": {"weight": 0.5, "tokenizer": "raw"},
+            },
+            "search": {"default_limit": 5, "show_description": False, "filters": []},
+            "auto_hook": False,
+        }
+        with open(os.path.join(temp_dir, ".tantivy2agents.json"), "w") as f:
+            json.dump(config, f)
+
+        docs_dir = os.path.join(temp_dir, "docs")
+        os.makedirs(docs_dir, exist_ok=True)
+        with open(os.path.join(docs_dir, "guide.md"), "w", encoding="utf-8") as f:
+            f.write("# Search Guide\n\nFind this document automatically.")
+
+        result = run_cli_command(["search", "automatically"], cwd=temp_dir)
+        assert result.returncode == 0, result.stderr
+        assert "### FILE: docs/guide.md" in result.stdout
+        assert os.path.exists(os.path.join(temp_dir, ".tantivy-data", "idx"))
+
 
 def test_clear_refuses_symlinked_index_directory():
     """Test clear does not follow a symlinked index directory."""
@@ -1293,6 +1337,106 @@ This is test content about testing.
             "description" not in output_data["results"][0]
         ), "JSON should NOT have description when hidden"
 
+
+def test_search_snippets_opt_in():
+    """Test search can include content snippets when explicitly requested."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md"], "exclude": []},
+            "index_dirs": ["docs/"],
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "description": {"weight": 1.5, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "tags": {"weight": 1.5, "tokenizer": "default"},
+                "servers": {"weight": 1.5, "tokenizer": "default"},
+                "path": {"weight": 0.5, "tokenizer": "raw"},
+            },
+            "search": {"default_limit": 5, "show_description": False, "filters": []},
+            "auto_hook": False,
+        }
+        with open(os.path.join(temp_dir, ".tantivy2agents.json"), "w") as f:
+            json.dump(config, f)
+
+        docs_dir = os.path.join(temp_dir, "docs")
+        os.makedirs(docs_dir, exist_ok=True)
+        with open(os.path.join(docs_dir, "guide.md"), "w", encoding="utf-8") as f:
+            f.write(
+                "# Restart Guide\n\n"
+                "Use systemctl restart nginx after checking the health endpoint.\n"
+                "Then verify the service logs.\n"
+            )
+
+        result = run_cli_command(["index"], cwd=temp_dir)
+        assert result.returncode == 0, f"Index failed: {result.stderr}"
+
+        compact = run_cli_command(["search", "nginx"], cwd=temp_dir)
+        assert compact.returncode == 0, compact.stderr
+        assert "SNIPPET:" not in compact.stdout
+
+        with_snippet = run_cli_command(["search", "nginx", "--snippets"], cwd=temp_dir)
+        assert with_snippet.returncode == 0, with_snippet.stderr
+        assert "SNIPPET:" in with_snippet.stdout
+        assert "systemctl restart nginx" in with_snippet.stdout
+
+
+def test_filtered_search_fetches_enough_candidates():
+    """Test filtered results still find visible docs below hidden top hits."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md"], "exclude": []},
+            "index_dirs": ["docs/", "incidents/"],
+            "schema_fields": {
+                "title": {"weight": 2.0, "tokenizer": "en_stem"},
+                "description": {"weight": 1.5, "tokenizer": "en_stem"},
+                "body": {"weight": 1.0, "tokenizer": "en_stem"},
+                "tags": {"weight": 1.5, "tokenizer": "default"},
+                "servers": {"weight": 1.5, "tokenizer": "default"},
+                "path": {"weight": 0.5, "tokenizer": "raw"},
+            },
+            "search": {
+                "default_limit": 5,
+                "show_description": False,
+                "filters": [
+                    {
+                        "name": "incidents",
+                        "paths": ["incidents/"],
+                        "hidden": True,
+                        "show_on_keywords": ["incident"],
+                    }
+                ],
+            },
+            "auto_hook": False,
+        }
+        with open(os.path.join(temp_dir, ".tantivy2agents.json"), "w") as f:
+            json.dump(config, f)
+
+        docs_dir = os.path.join(temp_dir, "docs")
+        incidents_dir = os.path.join(temp_dir, "incidents")
+        os.makedirs(docs_dir, exist_ok=True)
+        os.makedirs(incidents_dir, exist_ok=True)
+        for i in range(12):
+            with open(
+                os.path.join(incidents_dir, f"outage-{i}.md"), "w", encoding="utf-8"
+            ) as f:
+                f.write(f"# Outage {i}\n\nnginx nginx nginx nginx nginx hidden result")
+        with open(os.path.join(docs_dir, "guide.md"), "w", encoding="utf-8") as f:
+            f.write("# Service Guide\n\nnginx visible guide")
+
+        result = run_cli_command(["index"], cwd=temp_dir)
+        assert result.returncode == 0, f"Index failed: {result.stderr}"
+
+        result = run_cli_command(["search", "nginx", "--limit", "1"], cwd=temp_dir)
+        assert result.returncode == 0, result.stderr
+        assert "### FILE: docs/guide.md" in result.stdout
+        assert "incidents/outage" not in result.stdout
+
         # Test CSV output does NOT contain Description header
         result = run_cli_command(["search", "test", "--format", "csv"], cwd=temp_dir)
         assert result.returncode == 0, f"Search --format csv failed: {result.stderr}"
@@ -1692,6 +1836,7 @@ def main():
         ("Install Functionality", test_install_functionality),
         ("Status Command", test_status_command),
         ("Hook Clear Command", test_hook_clear_command),
+        ("Search Auto Indexes Missing Index", test_search_auto_indexes_missing_index),
         ("Clear Symlink Safety", test_clear_refuses_symlinked_index_directory),
         ("Setup Command", test_setup_command),
         ("CLI Validation", test_cli_validation),
@@ -1723,6 +1868,11 @@ def main():
         ("JSON Empty Title", test_json_empty_title),
         ("Description Output", test_description_output),
         ("Description Hidden", test_description_hidden),
+        ("Search Snippets Opt In", test_search_snippets_opt_in),
+        (
+            "Filtered Search Fetches Enough Candidates",
+            test_filtered_search_fetches_enough_candidates,
+        ),
         ("Excluded Directories", test_excluded_directories),
         (
             "File Discovery Module",

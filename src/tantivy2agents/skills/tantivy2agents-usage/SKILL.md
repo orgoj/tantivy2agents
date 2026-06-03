@@ -7,6 +7,11 @@ description: Daily usage of tantivy2agents - search, index, status commands. Use
 
 Daily usage guide for Tantivy Agent document indexing and search.
 
+Use this tool to find committed project documentation before doing work. In
+server-management repositories, search guides, runbooks, server notes, playbooks,
+and previous incidents stored in the repo. This is not external memory; the
+repository files are the shared source of truth.
+
 ## Quick Start
 
 ```bash
@@ -15,6 +20,9 @@ tantivy2agents index
 
 # Search documents
 tantivy2agents search "your query"
+
+# Search with a short content snippet when deciding what to read
+tantivy2agents search "nginx restart" --snippets
 
 # View index status
 tantivy2agents status
@@ -44,6 +52,7 @@ tantivy2agents search "query" --format json
 tantivy2agents search "query" --format csv
 tantivy2agents search "query" --format text
 tantivy2agents search "query" --limit 5    # Limit results
+tantivy2agents search "query" --snippets   # Include matched content snippet
 tantivy2agents search "query" -o out.json  # Save to file
 tantivy2agents search "query" -o /tmp/out.json --allow-outside-output
 ```
@@ -52,6 +61,7 @@ tantivy2agents search "query" -o /tmp/out.json --allow-outside-output
 - `--format text` - Structured text (default)
 - `--format json` - JSON with metadata
 - `--format csv` - CSV table
+- `--snippets` - Add a short matching content snippet
 - `--output` paths must stay inside the project unless
   `--allow-outside-output` is provided
 
@@ -99,7 +109,19 @@ TAGS: docker, networking
 
 Default text output is intentionally compact for agent workflows. Set
 `search.show_description: true` in `.tantivy2agents.json` to add
-`DESCRIPTION:` lines from YAML frontmatter.
+`DESCRIPTION:` lines from YAML frontmatter. Add `--snippets` when the agent needs
+a short content preview before opening a file.
+
+### Text Output with Snippets
+
+```
+### FILE: guides/server-setup.md
+TITLE: Complete Server Setup Guide
+SCORE: 0.8920
+TAGS: docker, networking
+SNIPPET: Restart nginx only after checking the health endpoint.
+---
+```
 
 ### JSON Output
 
@@ -163,6 +185,12 @@ servers: [s8, s9]
 
 ## Best Practices
 
+**Agent workflow:**
+- Search for the guide/runbook before editing code or changing a server.
+- Search for past incidents when the task mentions an outage, failure, rollback,
+  emergency, or project-specific incident keyword.
+- Open and read the returned files before acting.
+
 **After file changes:**
 - Index updates automatically if configured with hooks
 - Or run `tantivy2agents index` manually
@@ -191,11 +219,12 @@ servers: [s8, s9]
 
 **Stale results:**
 - Check index status: `tantivy2agents status`
-- Update index: `tantivy2agents index`
+- `search` refreshes missing or stale indexes automatically
+- Force a manual rebuild with `tantivy2agents index --force` if needed
 
 **Index outdated:**
 - Files changed since last index
-- Run `tantivy2agents index` to update
+- The next `tantivy2agents search ...` refreshes the index before searching
 
 ## Getting More Help
 

@@ -17,15 +17,16 @@ def export_results(
     format_output: str,
     output_file: str | None,
     config: dict[str, Any],
+    show_snippets: bool = False,
 ) -> None:
     """Export results in specified format."""
     fmt = format_output.lower()
     if fmt == "json":
-        export_json(results, query, output_file, config)
+        export_json(results, query, output_file, config, show_snippets=show_snippets)
     elif fmt == "csv":
-        export_csv(results, query, output_file, config)
+        export_csv(results, query, output_file, config, show_snippets=show_snippets)
     elif fmt in {"text", "txt"}:
-        export_text(results, query, output_file, config)
+        export_text(results, query, output_file, config, show_snippets=show_snippets)
     else:
         raise ValidationError(
             message="Unsupported output format",
@@ -40,6 +41,7 @@ def export_json(
     query: str,
     output_file: str | None,
     config: dict[str, Any],
+    show_snippets: bool = False,
 ) -> None:
     """Export results as JSON."""
     export_data = {
@@ -53,6 +55,8 @@ def export_json(
 
     for score, doc_address, doc in results:
         fields = extract_document_fields(doc, include_description=show_description)
+        if show_snippets:
+            fields["snippet"] = extract_snippet(doc, query)
         result_item = {"score": round(score, 4), **fields}
         export_data["results"].append(result_item)
 
@@ -69,6 +73,7 @@ def export_csv(
     query: str,
     output_file: str | None,
     config: dict[str, Any],
+    show_snippets: bool = False,
 ) -> None:
     """Export results as CSV."""
     if output_file:
@@ -81,12 +86,13 @@ def export_csv(
     try:
         writer = csv.writer(file_handle)
 
+        header = ["Score", "Path", "Title"]
         if show_description:
-            writer.writerow(
-                ["Score", "Path", "Title", "Description", "Tags", "Servers"]
-            )
-        else:
-            writer.writerow(["Score", "Path", "Title", "Tags", "Servers"])
+            header.append("Description")
+        header.extend(["Tags", "Servers"])
+        if show_snippets:
+            header.append("Snippet")
+        writer.writerow(header)
 
         for score, doc_address, doc in results:
             fields = extract_document_fields(doc, include_description=show_description)
@@ -94,6 +100,8 @@ def export_csv(
             if show_description:
                 row.append(fields["description"])
             row.extend([fields["tags"], fields["servers"]])
+            if show_snippets:
+                row.append(extract_snippet(doc, query))
             writer.writerow(row)
 
         if output_file:
@@ -111,6 +119,7 @@ def export_text(
     query: str,
     output_file: str | None,
     config: dict[str, Any],
+    show_snippets: bool = False,
 ) -> None:
     """Export results as structured text for easy parsing."""
     if output_file:
@@ -134,6 +143,10 @@ def export_text(
                 file_handle.write(f"TAGS: {fields['tags']}\n")
             if fields["servers"]:
                 file_handle.write(f"SERVERS: {fields['servers']}\n")
+            if show_snippets:
+                snippet = extract_snippet(doc, query)
+                if snippet:
+                    file_handle.write(f"SNIPPET: {snippet}\n")
             file_handle.write("---\n")
 
         if output_file:
@@ -159,3 +172,31 @@ def extract_document_fields(
         fields["description"] = doc["description"][0] if doc["description"] else ""
 
     return fields
+
+
+def extract_snippet(doc: Any, query: str, max_chars: int = 240) -> str:
+    """Return a compact one-line snippet from the stored original body."""
+    try:
+        body_values = doc["snippet"] if doc["snippet"] else []
+    except (KeyError, TypeError):
+        body_values = []
+    if not body_values:
+        return ""
+
+    body = str(body_values[0])
+    query_terms = [term.lower() for term in query.split() if term.strip()]
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    selected = lines[0]
+    for line in lines:
+        lower_line = line.lower()
+        if any(term in lower_line for term in query_terms):
+            selected = line
+            break
+
+    selected = " ".join(selected.split())
+    if len(selected) <= max_chars:
+        return selected
+    return selected[: max_chars - 3].rstrip() + "..."

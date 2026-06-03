@@ -4,6 +4,8 @@ Tantivy Agent - Main agent class for document indexing and search.
 
 import fnmatch
 import glob
+import contextlib
+import io
 import json
 import logging
 import os
@@ -449,6 +451,7 @@ class TantivyAgent:
             "title": title_normalized,
             "description": description,
             "body": body_normalized,
+            "snippet": body,
             "tags": " ".join(str(t) for t in meta.get("tags", []))
             if isinstance(meta.get("tags"), list)
             else str(meta.get("tags", "") or ""),
@@ -467,6 +470,13 @@ class TantivyAgent:
                 field_name,
                 stored=True,
                 tokenizer_name=field_config.get("tokenizer", "en_stem"),
+            )
+
+        if "snippet" not in self.config["schema_fields"]:
+            schema_builder.add_text_field(
+                "snippet",
+                stored=True,
+                tokenizer_name="default",
             )
 
         return schema_builder.build()
@@ -569,6 +579,7 @@ class TantivyAgent:
         format_output: Optional[str] = None,
         output_file: Optional[str] = None,
         allow_outside_output: bool = False,
+        show_snippets: bool = False,
     ) -> None:
         """Search in indexed documents"""
         if not query:
@@ -582,8 +593,7 @@ class TantivyAgent:
         data_dir = os.path.join(self.project_root, self.config["index_dir"])
         index_dir = os.path.join(data_dir, "idx")
 
-        if not os.path.exists(index_dir):
-            raise IndexNotFoundError(index_dir=index_dir)
+        self._ensure_search_index(data_dir, index_dir)
 
         try:
             # Load index
@@ -599,7 +609,7 @@ class TantivyAgent:
 
             # Search
             limit = limit or self.config["search"]["default_limit"]
-            search_limit = limit * 4  # Get more results for filtering
+            search_limit = self._candidate_limit(limit)
             result = searcher.search(query_parser, search_limit)
 
             if not result.hits:
@@ -621,15 +631,66 @@ class TantivyAgent:
 
             # Export results in requested format (default: json)
             self._export_results(
-                filtered_results[:limit], query, format_output or "json", output_file
+                filtered_results[:limit],
+                query,
+                format_output or "json",
+                output_file,
+                show_snippets=show_snippets,
             )
 
         except (OSError, ValueError, RuntimeError) as e:
             raise IndexNotFoundError(index_dir=index_dir) from e
 
-    def _export_results(self, results, query, format_output, output_file):
+    def _ensure_search_index(self, data_dir: str, index_dir: str) -> None:
+        """Build or refresh the index before search when needed."""
+        if (
+            not os.path.exists(index_dir)
+            or self._is_index_outdated(data_dir)
+            or not self._index_can_open(index_dir)
+        ):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.index_command(force=True)
+
+        if not os.path.exists(index_dir):
+            raise IndexNotFoundError(index_dir=index_dir)
+
+    def _index_can_open(self, index_dir: str) -> bool:
+        """Return True when an existing index directory can be opened."""
+        try:
+            tantivy.Index.open(index_dir)
+            return True
+        except (OSError, ValueError, RuntimeError):
+            return False
+
+    def _is_index_outdated(self, data_dir: str) -> bool:
+        """Return True when hook metadata marks the index stale."""
+        index_info_path = os.path.join(data_dir, "index_info.json")
+        try:
+            with open(index_info_path, "r", encoding="utf-8") as f:
+                index_info = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return False
+
+        return index_info.get("outdated") is True
+
+    def _candidate_limit(self, limit: int) -> int:
+        """Return enough candidates for path filters without expensive paging."""
+        if self._get_search_filters():
+            return min(max(limit * 20, 100), 10000)
+        return limit * 4
+
+    def _export_results(
+        self, results, query, format_output, output_file, show_snippets: bool = False
+    ):
         """Export results in specified format"""
-        export_results(results, query, format_output, output_file, self.config)
+        export_results(
+            results,
+            query,
+            format_output,
+            output_file,
+            self.config,
+            show_snippets=show_snippets,
+        )
 
     def _export_json(self, results, query, output_file):
         """Export results as JSON"""

@@ -2,6 +2,24 @@
 
 All notable project changes are tracked here.
 
+## Unreleased
+
+### Added
+- `search --snippets` to include a short matching content preview while keeping
+  default agent output compact.
+- Server-management setup guidance for repo-specific guides, runbooks, server
+  notes, playbooks, and incident documentation.
+
+### Changed
+- Default no-config indexing is documentation-focused (`*.md`, `*.txt`, `*.rst`)
+  instead of broad `*.*` indexing.
+- Search now automatically builds missing indexes and refreshes indexes marked
+  outdated by hooks.
+- Filtered searches fetch more candidates so hidden high-ranking documents are
+  less likely to mask visible results.
+- Packaged usage/setup guides now emphasize committed repository files as the
+  durable source of truth for agents.
+
 ## [0.7.15] - 2026-06-03
 
 ### Changed
