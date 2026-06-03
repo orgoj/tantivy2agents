@@ -32,3 +32,12 @@ Keep this file short. Put user-facing docs in `README.md`, release history in
 
 The CLI prints packaged docs from `src/tantivy2agents/skills/*/SKILL.md`.
 Do not maintain duplicate skill documentation copies elsewhere.
+
+## Agent Skills
+
+Repo-local agent workflow skills belong under `.agents/skills/` and should be
+committed. Keep `.claude/skills` as the tracked symlink to `.agents/skills`.
+
+Do not put internal agent workflow skills under `src/tantivy2agents/skills/`.
+That package directory is only for CLI-distributed `skill-usage` and
+`skill-setup` documentation.
