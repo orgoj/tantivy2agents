@@ -2,6 +2,12 @@
 
 All notable project changes are tracked here.
 
+## [0.7.6] - 2026-06-03
+
+### Changed
+- Moved process termination responsibility out of `CLIError` and into
+  `cli.main()`, leaving library-like code to raise or format structured errors.
+
 ## [0.7.5] - 2026-06-03
 
 ### Added

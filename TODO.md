@@ -21,28 +21,6 @@ test baseline are ambiguous.
 
 ## Phase 2: Error Handling Cleanup
 
-### 2.2 Remove direct `sys.exit()` from library-like code
-
-**Problem:** `sys.exit()` inside `TantivyAgent` makes direct unit tests and reuse
-harder.
-
-**Goal:** Keep process exits in the CLI entrypoint only.
-
-**Files:**
-- `src/tantivy2agents/agent.py`
-- `src/tantivy2agents/cli.py`
-- `src/tantivy2agents/exceptions.py`
-
-**Acceptance criteria:**
-- `TantivyAgent` methods raise exceptions instead of exiting the process.
-- `cli.main()` remains responsible for formatting `CLIError` and exiting.
-- Unit tests can call agent methods without catching `SystemExit` except where
-  testing the CLI wrapper itself.
-
-**Verification:**
-- `rg -n 'sys\\.exit' src/tantivy2agents`
-- `uv run python run_tests.py`
-
 ## Phase 3: Decompose `agent.py`
 
 ### 3.1 Extract configuration loading and validation

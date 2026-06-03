@@ -52,16 +52,14 @@ class CLIError(Exception):
             error_data["error"]["context"] = self.context
         return json.dumps(error_data, indent=2)
 
-    def exit(self):
-        """Exit with appropriate format based on environment."""
+    def print(self) -> None:
+        """Print with appropriate format based on environment."""
         is_json = os.getenv("TANTIVY_JSON_OUTPUT", "").lower() == "true"
 
         if is_json:
             print(self.format_json(), file=sys.stderr)
         else:
             print(self.format_human(), file=sys.stderr)
-
-        sys.exit(self.exit_code)
 
 
 class ValidationError(CLIError):

@@ -1,5 +1,6 @@
 """Tantivy Agent CLI - Command line interface using Typer."""
 
+import sys
 from enum import Enum
 from typing import Optional
 
@@ -401,7 +402,8 @@ def main() -> None:
     try:
         app()
     except CLIError as e:
-        e.exit()
+        e.print()
+        sys.exit(e.exit_code)
 
 
 if __name__ == "__main__":
