@@ -19,10 +19,4 @@ dist/
 build/
 *.egg-info/
 
-# Local agent/session state
-.agents/
-.codex/
-.pi/
-.claude/diary/
-.claude/settings.local.json
-.claude/settings.mop-diary.json
+*.local.*

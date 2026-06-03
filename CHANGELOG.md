@@ -2,10 +2,20 @@
 
 All notable project changes are tracked here.
 
+## [0.7.2] - 2026-06-03
+
+### Changed
+- Moved `todo-roadmap-workflow` from packaged runtime skills to the repo-local
+  `.agents/skills` directory.
+- Tracked the `.claude/skills` symlink to the repo-local agent skills directory.
+
+### Removed
+- Removed the accidental packaged `todo-roadmap-workflow` skill copy.
+
 ## [0.7.1] - 2026-06-03
 
 ### Added
-- Packaged `todo-roadmap-workflow` skill for TODO-driven project work.
+- `todo-roadmap-workflow` skill for TODO-driven project work.
 - Regression coverage for the default search result limit.
 - Concrete Typer CLI tests for text, JSON, and CSV search output.
 
