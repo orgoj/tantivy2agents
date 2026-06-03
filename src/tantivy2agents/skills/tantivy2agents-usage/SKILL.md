@@ -92,6 +92,10 @@ TAGS: docker, networking
 ---
 ```
 
+Default text output is intentionally compact for agent workflows. Set
+`search.show_description: true` in `.tantivy2agents.json` to add
+`DESCRIPTION:` lines from YAML frontmatter.
+
 ### JSON Output
 
 ```json
@@ -104,7 +108,6 @@ TAGS: docker, networking
       "score": 0.892,
       "path": "guides/server-setup.md",
       "title": "Complete Server Setup Guide",
-      "description": "Step-by-step server setup guide",
       "tags": "docker networking",
       "servers": ""
     }
@@ -112,12 +115,15 @@ TAGS: docker, networking
 }
 ```
 
+JSON output follows `search.show_description`; enable it when machine consumers
+need frontmatter descriptions.
+
 ### CSV Output
 
 ```csv
-Score,Path,Title,Description,Tags,Servers
-0.8920,guides/server-setup.md,Complete Server Setup Guide,Step-by-step guide,docker networking,
-0.7560,servers/production.md,Production Server Configuration,Production settings,infrastructure,prod
+Score,Path,Title,Tags,Servers
+0.8920,guides/server-setup.md,Complete Server Setup Guide,docker networking,
+0.7560,servers/production.md,Production Server Configuration,infrastructure,prod
 ```
 
 ## YAML Frontmatter

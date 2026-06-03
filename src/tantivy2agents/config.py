@@ -70,7 +70,7 @@ def default_config() -> dict[str, Any]:
             "servers": {"weight": 1.5, "tokenizer": "default"},
             "path": {"weight": 0.5, "tokenizer": "raw"},
         },
-        "search": {"default_limit": 5, "show_description": True, "filters": []},
+        "search": {"default_limit": 5, "show_description": False, "filters": []},
         "encoding": {
             "default_encoding": "utf-8",
             "auto_detect": True,
@@ -121,7 +121,7 @@ def _base_project_config() -> dict[str, Any]:
             "servers": {"weight": 1.5, "tokenizer": "default"},
             "path": {"weight": 0.5, "tokenizer": "raw"},
         },
-        "search": {"default_limit": 5, "show_description": True, "filters": []},
+        "search": {"default_limit": 5, "show_description": False, "filters": []},
         "auto_hook": True,
     }
 
@@ -312,7 +312,7 @@ def config_example_text() -> str:
   // Search settings
   "search": {
     "default_limit": 5,          // Default number of results
-    "show_description": true,     // Show description in results (default: true)
+    "show_description": false,    // Keep text output compact by default
     "filters": [                  // Path-based result filters
       {
         "name": "incidents",      // Filter name (for debugging)

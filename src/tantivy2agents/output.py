@@ -49,7 +49,7 @@ def export_json(
         "results": [],
     }
 
-    show_description = config.get("search", {}).get("show_description", True)
+    show_description = config.get("search", {}).get("show_description", False)
 
     for score, doc_address, doc in results:
         fields = extract_document_fields(doc, include_description=show_description)
@@ -76,7 +76,7 @@ def export_csv(
     else:
         file_handle = sys.stdout
 
-    show_description = config.get("search", {}).get("show_description", True)
+    show_description = config.get("search", {}).get("show_description", False)
 
     try:
         writer = csv.writer(file_handle)
@@ -118,7 +118,7 @@ def export_text(
     else:
         file_handle = sys.stdout
 
-    show_description = config.get("search", {}).get("show_description", True)
+    show_description = config.get("search", {}).get("show_description", False)
 
     try:
         for score, doc_address, doc in results:

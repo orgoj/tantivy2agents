@@ -64,7 +64,9 @@ tantivy2agents search "api config" --format json --output results.json
 TANTIVY_JSON_OUTPUT=true tantivy2agents search "" 2>&1
 ```
 
-`search --format` accepts `text`, `json`, and `csv`. The default is `text`.
+`search --format` accepts `text`, `json`, and `csv`. The default is compact
+`text`: it shows path, title, score, tags, and servers. Frontmatter
+descriptions are opt-in with `search.show_description: true`.
 
 ## Configuration
 
@@ -85,7 +87,8 @@ Useful fields:
 - `global_patterns`: default include/exclude file patterns.
 - `schema_fields`: search weights and tokenizers for fields.
 - `search.default_limit`: default result count; project default is `5`.
-- `search.show_description`: include frontmatter descriptions in output.
+- `search.show_description`: include frontmatter descriptions in output; default
+  is `false` to keep agent search output compact.
 - `search.filters`: hide path prefixes unless query keywords match.
 - `encoding`: default, fallback, binary, and file-specific encodings.
 - `auto_hook`: whether `install` should add Claude Code hooks.

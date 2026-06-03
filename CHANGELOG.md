@@ -2,6 +2,17 @@
 
 All notable project changes are tracked here.
 
+## [0.7.11] - 2026-06-03
+
+### Changed
+- Made search result descriptions opt-in by defaulting `search.show_description`
+  to `false` in runtime and install-created configs.
+- Documented compact default text output and the `show_description` opt-in in
+  README and packaged usage/setup guides.
+
+### Added
+- Exact output regression coverage for representative compact text search output.
+
 ## [0.7.10] - 2026-06-03
 
 ### Added

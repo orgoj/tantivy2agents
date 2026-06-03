@@ -25,31 +25,6 @@ test baseline are ambiguous.
 
 ## Phase 4: CLI and UX Polish
 
-### 4.1 Reduce default output verbosity
-
-**Problem:** Search output can consume too many tokens for agent workflows.
-
-**Goal:** Keep defaults compact and make extra detail opt-in.
-
-**Files:**
-- `src/tantivy2agents/cli.py`
-- `src/tantivy2agents/agent.py`
-- `src/tantivy2agents/skills/tantivy2agents-usage/SKILL.md`
-- `README.md`
-- `tests/`
-
-**Acceptance criteria:**
-- Default search result count is `5`.
-- Current default text output is reviewed against token cost and documented.
-- Any change to fields shown by default has an explicit before/after example in
-  tests and docs.
-- JSON output remains complete enough for machine use.
-- No output format redesign is bundled into the `default_limit` fix.
-
-**Verification:**
-- Exact-output tests for one representative text search result.
-- `uv run python tests/test_basic.py`
-
 ### 4.2 Clarify command boundaries
 
 **Problem:** Some commands are user-facing (`search`, `index`, `status`) while

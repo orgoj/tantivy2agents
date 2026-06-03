@@ -123,7 +123,7 @@ Configuration is stored in `.tantivy2agents.json` in project root.
 
   "search": {
     "default_limit": 5,
-    "show_description": true,
+    "show_description": false,
     "filters": [
       {
         "name": "incidents",
@@ -208,13 +208,13 @@ Search behavior settings.
 ```json
 "search": {
   "default_limit": 5,
-  "show_description": true,
+  "show_description": false,
   "filters": [...]
 }
 ```
 
 - **default_limit** - Default number of results
-- **show_description** - Show description in results (default: true)
+- **show_description** - Show description in results (default: false for compact agent output)
 - **filters** - Path-based result filters (see below)
 
 ### Search Filters

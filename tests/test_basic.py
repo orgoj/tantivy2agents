@@ -184,6 +184,7 @@ def test_config_module_defaults_match_agent_defaults():
             defaults = default_config()
 
             assert defaults["search"]["default_limit"] == 5
+            assert defaults["search"]["show_description"] is False
             assert agent.config == defaults
             assert "servers" in defaults["schema_fields"]
         finally:
@@ -1353,6 +1354,41 @@ def test_output_module_exports_formats_and_handles_missing_fields():
         assert "docs/guide.md" in csv_content
 
 
+def test_output_module_default_text_output_is_compact_exact():
+    """Test representative compact default text output exactly."""
+
+    class MockDoc:
+        def __getitem__(self, key):
+            data = {
+                "path": ["docs/guide.md"],
+                "title": ["Guide"],
+                "description": ["Detailed summary that should be opt-in"],
+                "tags": ["docs"],
+                "servers": ["prod"],
+            }
+            return data.get(key, [])
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        output_path = os.path.join(temp_dir, "results.txt")
+        export_results(
+            [(0.75, "addr", MockDoc())],
+            "guide",
+            "text",
+            output_path,
+            {"search": {}},
+        )
+
+        with open(output_path, encoding="utf-8") as f:
+            assert f.read() == (
+                "### FILE: docs/guide.md\n"
+                "TITLE: Guide\n"
+                "SCORE: 0.7500\n"
+                "TAGS: docs\n"
+                "SERVERS: prod\n"
+                "---\n"
+            )
+
+
 def test_excluded_directories():
     """Test that excluded directories (.git, .venv, etc.) are not indexed"""
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1566,6 +1602,10 @@ def main():
         (
             "Output Module Formats",
             test_output_module_exports_formats_and_handles_missing_fields,
+        ),
+        (
+            "Compact Exact Text Output",
+            test_output_module_default_text_output_is_compact_exact,
         ),
         ("Output Formats", test_output_formats),
         ("Missing Index Error", test_missing_index_raises_structured_error),
