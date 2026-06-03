@@ -178,6 +178,24 @@ class TestSkillCommands(unittest.TestCase):
         self.assertTrue(os.path.exists(path))
         self.assertTrue(path.endswith("skills/tantivy2agents-usage/SKILL.md"))
 
+    def test_find_skill_file_ignores_local_claude_fallback(self):
+        """Test _find_skill_file only resolves packaged skill files."""
+        local_skill_dir = os.path.join(
+            self.test_dir, ".claude", "skills", "tantivy2agents-usage"
+        )
+        os.makedirs(local_skill_dir, exist_ok=True)
+        local_skill_path = os.path.join(local_skill_dir, "SKILL.md")
+        with open(local_skill_path, "w", encoding="utf-8") as f:
+            f.write("# Local duplicate should not be used\n")
+
+        agent = TantivyAgent(quiet=True)
+        path = agent._find_skill_file("tantivy2agents-usage")
+
+        self.assertNotEqual(path, local_skill_path)
+        self.assertTrue(
+            path.endswith("src/tantivy2agents/skills/tantivy2agents-usage/SKILL.md")
+        )
+
     def test_skill_usage_contains_all_sections(self):
         """Test skill-usage contains all expected sections."""
         agent = TantivyAgent(quiet=True)

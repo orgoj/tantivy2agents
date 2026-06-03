@@ -23,30 +23,6 @@ test baseline are ambiguous.
 
 ## Phase 3: Decompose `agent.py`
 
-### 3.4 Keep skill docs packaged only
-
-**Problem:** The previous `.claude/skills` duplicate docs created two sources of
-truth.
-
-**Goal:** Keep the package skills as the only source used by `skill-usage` and
-`skill-setup`.
-
-**Files:**
-- `src/tantivy2agents/agent.py`
-- `src/tantivy2agents/skills/*/SKILL.md`
-- `pyproject.toml`
-- `tests/test_skill_commands.py`
-
-**Acceptance criteria:**
-- `_find_skill_file()` only resolves package skill files.
-- `pyproject.toml` includes packaged skills in wheel/sdist.
-- No `.claude/skills` fallback is restored.
-- Skill command tests pass from source checkout and installed package context.
-
-**Verification:**
-- `uv run python tests/test_skill_commands.py`
-- `uv build`
-
 ## Phase 4: CLI and UX Polish
 
 ### 4.1 Reduce default output verbosity

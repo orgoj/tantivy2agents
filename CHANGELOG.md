@@ -2,6 +2,15 @@
 
 All notable project changes are tracked here.
 
+## [0.7.10] - 2026-06-03
+
+### Added
+- Regression coverage that packaged skill docs are preferred over any local
+  `.claude/skills` duplicate.
+
+### Verified
+- Confirmed `uv build` includes packaged skill docs in wheel and sdist artifacts.
+
 ## [0.7.9] - 2026-06-03
 
 ### Added
