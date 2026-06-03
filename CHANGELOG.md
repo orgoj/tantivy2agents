@@ -2,6 +2,18 @@
 
 All notable project changes are tracked here.
 
+## [0.7.8] - 2026-06-03
+
+### Added
+- `tantivy2agents.files` module for glob expansion, include/exclude matching,
+  binary detection, and index file collection.
+- Direct file discovery tests covering glob patterns, excluded directories,
+  binary skips, and agent wrapper parity.
+
+### Changed
+- Delegated `TantivyAgent` file discovery helpers to the file discovery module
+  so `index`, `list`, and preview flags share the same path filtering behavior.
+
 ## [0.7.7] - 2026-06-03
 
 ### Added

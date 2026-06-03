@@ -23,30 +23,6 @@ test baseline are ambiguous.
 
 ## Phase 3: Decompose `agent.py`
 
-### 3.2 Extract file discovery and path filtering
-
-**Problem:** File collection, glob expansion, includes/excludes, encoding skips,
-and project-root assumptions are mixed with indexing.
-
-**Goal:** Create a focused file discovery module that can be tested without
-building a Tantivy index.
-
-**Files:**
-- new `src/tantivy2agents/files.py`
-- `src/tantivy2agents/agent.py`
-- `tests/test_basic.py`
-- `tests/test_encoding.py`
-
-**Acceptance criteria:**
-- Include/exclude behavior is unchanged.
-- Empty directories and ignored build/cache directories do not leak into results.
-- `list`, `index --dirs`, and `index --files` share the same discovery logic.
-- Tests cover glob patterns, directory objects, excludes, and binary skips.
-
-**Verification:**
-- `uv run python tests/test_basic.py`
-- `uv run python tests/test_encoding.py`
-
 ### 3.3 Extract search result formatting/export
 
 **Problem:** Search, filtering, field extraction, and output writers are tightly

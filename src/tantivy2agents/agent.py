@@ -29,6 +29,12 @@ from .exceptions import (
     IndexNotFoundError,
     ValidationError,
 )
+from .files import (
+    collect_files_for_indexing,
+    expand_index_dirs,
+    is_binary_file,
+    match_pattern,
+)
 
 # Module logger
 logger = logging.getLogger(__name__)
@@ -202,224 +208,24 @@ class TantivyAgent:
 
     def _expand_glob_patterns(self, pattern_list):
         """Expand glob patterns to actual directory/file paths"""
-        expanded_paths = []
-
-        for item in pattern_list:
-            if isinstance(item, str):
-                # Simple pattern - expand it
-                if "**" in item:
-                    # Recursive glob
-                    matches = glob.glob(
-                        os.path.join(self.project_root, item), recursive=True
-                    )
-                else:
-                    # Regular glob
-                    matches = glob.glob(os.path.join(self.project_root, item))
-
-                # Filter to only existing directories and files
-                for match in matches:
-                    if os.path.exists(match):
-                        rel_path = os.path.relpath(match, self.project_root)
-                        expanded_paths.append(
-                            {
-                                "path": rel_path,
-                                "type": "dir" if os.path.isdir(match) else "file",
-                            }
-                        )
-
-            elif isinstance(item, dict):
-                # Directory with exclude/include rules
-                path_pattern = item.get("path", "")
-                exclude = item.get("exclude", False)
-
-                if "**" in path_pattern:
-                    matches = glob.glob(
-                        os.path.join(self.project_root, path_pattern), recursive=True
-                    )
-                else:
-                    matches = glob.glob(os.path.join(self.project_root, path_pattern))
-
-                for match in matches:
-                    if os.path.exists(match):
-                        rel_path = os.path.relpath(match, self.project_root)
-                        expanded_paths.append(
-                            {
-                                "path": rel_path,
-                                "exclude": exclude,
-                                "type": "dir" if os.path.isdir(match) else "file",
-                            }
-                        )
-
-        return expanded_paths
+        return expand_index_dirs(pattern_list, self.project_root)
 
     def _get_files_for_indexing(self, show_dirs=False, show_files=False):
         """Get list of files to index based on configuration with glob pattern support"""
-        files = []
-        dirs_processed = []
-
-        # First expand glob patterns in index_dirs
-        expanded_dirs = self._expand_glob_patterns(self.config["index_dirs"])
-
-        # Build list of excluded directory names for os.walk() filtering
-        excluded_dir_names = set()
-        for dir_config in expanded_dirs:
-            if dir_config.get("exclude", False):
-                # Get just the directory name (not the full path)
-                dir_path = dir_config["path"]
-                # Handle both relative paths and simple names
-                dir_name = os.path.basename(dir_path.rstrip("/"))
-                excluded_dir_names.add(dir_name)
-
-        for dir_config in expanded_dirs:
-            # Skip if this is marked as excluded
-            if dir_config.get("exclude", False):
-                continue
-
-            dir_path = dir_config["path"]
-            include_patterns = self.config["global_patterns"]["include"]
-            exclude_patterns = self.config["global_patterns"]["exclude"]
-
-            full_dir_path = os.path.join(self.project_root, dir_path)
-            if not os.path.exists(full_dir_path):
-                continue
-
-            # Track directories being processed
-            if show_dirs:
-                dirs_processed.append(full_dir_path)
-
-            if dir_config.get("type") == "file":
-                # Single file
-                rel_path = os.path.relpath(full_dir_path, self.project_root)
-
-                # Check if file matches include patterns
-                included = any(
-                    self._match_pattern(rel_path, pattern)
-                    for pattern in include_patterns
-                )
-                excluded = any(
-                    self._match_pattern(rel_path, pattern)
-                    for pattern in exclude_patterns
-                )
-
-                if included and not excluded:
-                    # Check if file is binary before adding
-                    try:
-                        with open(full_dir_path, "rb") as f:
-                            content_bytes = f.read()
-                        if not self._is_binary_file(full_dir_path, content_bytes):
-                            files.append(full_dir_path)
-                            # Show files if requested
-                            if show_files:
-                                print(f"  {rel_path}")
-                    except OSError:
-                        # If we can't read the file, skip it
-                        pass
-            else:
-                # Directory - walk through it
-                for root, dirs, filenames in os.walk(full_dir_path):
-                    # Filter out excluded directories to prevent os.walk() from descending into them
-                    # Modify dirs in-place - os.walk() uses this to determine which subdirs to visit
-                    dirs[:] = [d for d in dirs if d not in excluded_dir_names]
-
-                    for filename in filenames:
-                        file_path = os.path.join(root, filename)
-                        rel_path = os.path.relpath(file_path, self.project_root)
-
-                        # Check include patterns
-                        included = any(
-                            self._match_pattern(rel_path, pattern)
-                            for pattern in include_patterns
-                        )
-
-                        # Check exclude patterns
-                        excluded = any(
-                            self._match_pattern(rel_path, pattern)
-                            for pattern in exclude_patterns
-                        )
-
-                        if included and not excluded:
-                            # Check if file is binary before adding
-                            try:
-                                with open(file_path, "rb") as f:
-                                    content_bytes = f.read()
-                                if not self._is_binary_file(file_path, content_bytes):
-                                    files.append(file_path)
-                                    # Show files if requested
-                                    if show_files:
-                                        print(f"  {rel_path}")
-                            except OSError:
-                                # If we can't read the file, skip it
-                                pass
-
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_files = []
-        for file_path in files:
-            if file_path not in seen:
-                seen.add(file_path)
-                unique_files.append(file_path)
-
-        # Remove duplicates from dirs_processed as well
-        unique_dirs = []
-        seen_dirs = set()
-        for dir_path in dirs_processed:
-            if dir_path not in seen_dirs:
-                seen_dirs.add(dir_path)
-                unique_dirs.append(dir_path)
-
-        # Show directories if requested
-        if show_dirs:
-            print("Directories to be processed:")
-            for dir_path in unique_dirs:
-                rel_dir = os.path.relpath(dir_path, self.project_root)
-                print(f"  {rel_dir}")
-
-        return unique_files, unique_dirs
+        return collect_files_for_indexing(
+            self.config,
+            self.project_root,
+            show_dirs=show_dirs,
+            show_files=show_files,
+        )
 
     def _match_pattern(self, path, pattern):
         """Simple glob pattern matching"""
-        return fnmatch.fnmatch(path, pattern)
+        return match_pattern(path, pattern)
 
     def _is_binary_file(self, file_path, content_bytes=None):
         """Check if file is binary based on extension and content"""
-        encoding_config = self.config.get("encoding", {})
-
-        # Check file extension
-        binary_extensions = encoding_config.get("binary_extensions", [])
-        filename = os.path.basename(file_path)
-
-        for ext in binary_extensions:
-            if fnmatch.fnmatch(filename.lower(), ext.lower()):
-                return True
-
-        # If content is provided, do binary content detection
-        if content_bytes:
-            # Check for null bytes (common in binary files)
-            if b"\x00" in content_bytes:
-                return True
-
-            # Check for high ratio of non-printable characters
-            try:
-                # Try to decode as UTF-8 to see if it contains mostly text
-                content_bytes.decode("utf-8")
-                return False
-            except UnicodeDecodeError:
-                # If it can't be decoded as UTF-8 and has many non-text bytes, likely binary
-                min_ascii, max_ascii = self.PRINTABLE_ASCII_RANGE
-                text_chars = len(
-                    [
-                        b
-                        for b in content_bytes
-                        if min_ascii <= b <= max_ascii or b in self.WHITESPACE_CHARS
-                    ]
-                )
-                if (
-                    len(content_bytes) > 0
-                    and text_chars / len(content_bytes) < self.MIN_TEXT_CHAR_RATIO
-                ):
-                    return True
-
-        return False
+        return is_binary_file(file_path, content_bytes, self.config.get("encoding", {}))
 
     def _get_encoding_for_file(self, file_path):
         """Get configured encoding for a specific file based on patterns"""

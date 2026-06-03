@@ -25,6 +25,7 @@ from tantivy2agents.exceptions import (
     IndexNotFoundError,
     ValidationError,
 )
+from tantivy2agents.files import collect_files_for_indexing, expand_index_dirs
 
 
 def run_test(test_name, test_func):
@@ -1373,6 +1374,79 @@ def test_excluded_directories():
             os.chdir(old_cwd)
 
 
+def test_file_discovery_module_handles_globs_excludes_and_binary():
+    """Test direct file discovery without building a Tantivy index."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
+        os.makedirs(os.path.join(temp_dir, "docs"), exist_ok=True)
+        os.makedirs(os.path.join(temp_dir, "build"), exist_ok=True)
+
+        with open(os.path.join(temp_dir, "docs", "guide.md"), "w") as f:
+            f.write("# Guide\nIndex me")
+        with open(os.path.join(temp_dir, "docs", "skip.tmp"), "w") as f:
+            f.write("skip")
+        with open(os.path.join(temp_dir, "docs", "image.jpg"), "wb") as f:
+            f.write(b"\x00\x01binary")
+        with open(os.path.join(temp_dir, "build", "ignored.md"), "w") as f:
+            f.write("# Ignored\n")
+
+        config = {
+            "global_patterns": {"include": ["*.md", "*.jpg"], "exclude": ["*.tmp"]},
+            "index_dirs": [
+                "docs/**",
+                {"path": "build", "exclude": True},
+            ],
+            "encoding": {"binary_extensions": ["*.jpg"]},
+        }
+
+        expanded = expand_index_dirs(config["index_dirs"], temp_dir)
+        assert any(item["path"] == "docs/guide.md" for item in expanded)
+
+        files, dirs = collect_files_for_indexing(config, temp_dir)
+        rel_files = [os.path.relpath(path, temp_dir) for path in files]
+        rel_dirs = [os.path.relpath(path, temp_dir) for path in dirs]
+
+        assert rel_files == ["docs/guide.md"]
+        assert "build/ignored.md" not in rel_files
+        assert "docs/image.jpg" not in rel_files
+        assert rel_dirs == []
+
+
+def test_agent_file_discovery_wrapper_matches_module():
+    """Test agent file discovery delegates to the module behavior."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
+        os.makedirs(os.path.join(temp_dir, "docs"), exist_ok=True)
+        with open(os.path.join(temp_dir, "docs", "guide.md"), "w") as f:
+            f.write("# Guide\nIndex me")
+
+        config = {
+            "version": "1.0",
+            "index_dir": ".tantivy-data",
+            "global_patterns": {"include": ["*.md"], "exclude": []},
+            "index_dirs": ["docs/**"],
+            "search": {"default_limit": 5, "filters": []},
+            "auto_hook": False,
+        }
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
+        with open(config_path, "w") as f:
+            json.dump(config, f)
+
+        old_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            agent = TantivyAgent()
+            agent_files, agent_dirs = agent._get_files_for_indexing()
+            module_files, module_dirs = collect_files_for_indexing(
+                agent.config, agent.project_root
+            )
+
+            assert agent_files == module_files
+            assert agent_dirs == module_dirs
+        finally:
+            os.chdir(old_cwd)
+
+
 def test_parsing_with_non_string_tags():
     """Test that parsing is robust to non-string tags/servers"""
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1451,6 +1525,14 @@ def main():
         ("Description Output", test_description_output),
         ("Description Hidden", test_description_hidden),
         ("Excluded Directories", test_excluded_directories),
+        (
+            "File Discovery Module",
+            test_file_discovery_module_handles_globs_excludes_and_binary,
+        ),
+        (
+            "Agent File Discovery Wrapper",
+            test_agent_file_discovery_wrapper_matches_module,
+        ),
         ("Robust Parsing", test_parsing_with_non_string_tags),
     ]
 
