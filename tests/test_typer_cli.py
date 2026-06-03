@@ -2,11 +2,43 @@
 
 import json
 import os
+import sys
 from typer.testing import CliRunner
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from tantivy2agents.cli import app
 
 runner = CliRunner()
+
+
+def create_search_project() -> None:
+    """Create an isolated project with one searchable document."""
+    os.makedirs(".git", exist_ok=True)
+    os.makedirs("docs", exist_ok=True)
+
+    config = {
+        "version": "1.0",
+        "index_dir": ".tantivy-data",
+        "global_patterns": {"include": ["*.md"], "exclude": []},
+        "index_dirs": ["docs/"],
+        "schema_fields": {
+            "title": {"weight": 2.0, "tokenizer": "en_stem"},
+            "description": {"weight": 1.5, "tokenizer": "en_stem"},
+            "body": {"weight": 1.0, "tokenizer": "en_stem"},
+            "tags": {"weight": 1.5, "tokenizer": "default"},
+            "servers": {"weight": 1.5, "tokenizer": "default"},
+            "path": {"weight": 0.5, "tokenizer": "raw"},
+        },
+        "search": {"default_limit": 5, "show_description": True, "filters": []},
+        "auto_hook": False,
+    }
+
+    with open(".tantivy2agents.json", "w", encoding="utf-8") as f:
+        json.dump(config, f)
+
+    with open("docs/guide.md", "w", encoding="utf-8") as f:
+        f.write("# Testing Guide\n\nThis document covers CLI output testing.")
 
 
 # =============================================================================
@@ -91,30 +123,38 @@ def test_format_enum_validation():
 
 def test_list_command_basic():
     """Test list command without options."""
-    result = runner.invoke(app, ["list"])
-    assert result.exit_code == 0
-    assert "Total:" in result.stdout
+    with runner.isolated_filesystem():
+        create_search_project()
+        result = runner.invoke(app, ["list"])
+        assert result.exit_code == 0
+        assert "Total:" in result.stdout
 
 
 def test_list_with_pattern():
     """Test list command with pattern filter."""
-    result = runner.invoke(app, ["list", "--pattern", "*.md"])
-    assert result.exit_code == 0
-    # Should only show .md files
+    with runner.isolated_filesystem():
+        create_search_project()
+        result = runner.invoke(app, ["list", "--pattern", "*.md"])
+        assert result.exit_code == 0
+        assert "docs/guide.md" in result.stdout
 
 
 def test_list_with_size():
     """Test list command with size information."""
-    result = runner.invoke(app, ["list", "--size"])
-    assert result.exit_code == 0
-    assert "bytes" in result.stdout
+    with runner.isolated_filesystem():
+        create_search_project()
+        result = runner.invoke(app, ["list", "--size"])
+        assert result.exit_code == 0
+        assert "bytes" in result.stdout
 
 
 def test_list_with_encoding():
     """Test list command with encoding detection."""
-    result = runner.invoke(app, ["list", "--encoding"])
-    assert result.exit_code == 0
-    # Encoding info should be shown
+    with runner.isolated_filesystem():
+        create_search_project()
+        result = runner.invoke(app, ["list", "--encoding"])
+        assert result.exit_code == 0
+        assert "docs/guide.md [" in result.stdout
 
 
 # =============================================================================
@@ -159,26 +199,27 @@ def test_empty_query_validation():
 # =============================================================================
 
 
-def test_json_search_output_is_parseable():
-    """Test that JSON search output is valid and parseable."""
-    result = runner.invoke(app, ["search", "test", "--format", "json"])
+def test_search_output_formats_are_concrete():
+    """Test search --format output for text, JSON, and CSV."""
+    with runner.isolated_filesystem():
+        create_search_project()
+        result = runner.invoke(app, ["index"])
+        assert result.exit_code == 0
 
-    # May fail if no index, but output should be JSON
-    try:
+        result = runner.invoke(app, ["search", "testing", "--format", "text"])
+        assert result.exit_code == 0
+        assert "### FILE: docs/guide.md" in result.stdout
+
+        result = runner.invoke(app, ["search", "testing", "--format", "json"])
+        assert result.exit_code == 0
         data = json.loads(result.stdout)
-        assert "query" in data or "results" in data
-    except json.JSONDecodeError:
-        # Output might be error, that's ok
-        pass
+        assert data["query"] == "testing"
+        assert data["results"][0]["path"] == "docs/guide.md"
 
-
-def test_csv_search_output_format():
-    """Test that CSV search output has correct format."""
-    result = runner.invoke(app, ["search", "test", "--format", "csv"])
-
-    # CSV output should have headers
-    if result.exit_code == 0:
-        assert "," in result.stdout or "path,score" in result.stdout
+        result = runner.invoke(app, ["search", "testing", "--format", "csv"])
+        assert result.exit_code == 0
+        assert "Score,Path,Title" in result.stdout
+        assert "docs/guide.md" in result.stdout
 
 
 # =============================================================================
@@ -188,28 +229,31 @@ def test_csv_search_output_format():
 
 def test_full_workflow_index_search():
     """Test complete workflow: install -> index -> search."""
-    # Install
-    result = runner.invoke(app, ["install", "--no-config"])
-    assert result.exit_code == 0
+    with runner.isolated_filesystem():
+        os.makedirs(".git", exist_ok=True)
+        with open("guide.md", "w", encoding="utf-8") as f:
+            f.write("# Testing Guide\n\nThis document covers workflow testing.")
 
-    # Index
-    result = runner.invoke(app, ["index"])
-    assert result.exit_code == 0
+        result = runner.invoke(app, ["install", "--no-config"])
+        assert result.exit_code == 0
 
-    # Search
-    result = runner.invoke(app, ["search", "test", "--limit", "1"])
-    assert result.exit_code == 0
+        result = runner.invoke(app, ["index"])
+        assert result.exit_code == 0
+
+        result = runner.invoke(app, ["search", "testing", "--limit", "1"])
+        assert result.exit_code == 0
+        assert "### FILE: guide.md" in result.stdout
 
 
 def test_clear_status_workflow():
     """Test clear and status commands."""
-    # Clear
-    result = runner.invoke(app, ["clear"])
-    assert result.exit_code == 0
+    with runner.isolated_filesystem():
+        create_search_project()
+        result = runner.invoke(app, ["clear"])
+        assert result.exit_code == 0
 
-    # Status should show empty index
-    result = runner.invoke(app, ["status"])
-    assert result.exit_code == 0
+        result = runner.invoke(app, ["status"])
+        assert result.exit_code == 0
 
 
 # =============================================================================
@@ -252,11 +296,15 @@ def test_config_option():
 
 def test_verbose_quiet_options():
     """Test --verbose and --quiet options."""
-    result = runner.invoke(app, ["index", "--verbose"])
-    assert result.exit_code == 0
+    with runner.isolated_filesystem():
+        create_search_project()
+        result = runner.invoke(app, ["index", "--verbose"])
+        assert result.exit_code == 0
 
-    result = runner.invoke(app, ["index", "--quiet"])
-    assert result.exit_code == 0
+    with runner.isolated_filesystem():
+        create_search_project()
+        result = runner.invoke(app, ["index", "--quiet"])
+        assert result.exit_code == 0
 
 
 def test_limit_validation():

@@ -142,7 +142,7 @@ class TantivyAgent:
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "show_description": True, "filters": []},
+            "search": {"default_limit": 5, "show_description": True, "filters": []},
             "encoding": {
                 "default_encoding": "utf-8",
                 "auto_detect": True,
@@ -355,7 +355,7 @@ class TantivyAgent:
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "show_description": True, "filters": []},
+            "search": {"default_limit": 5, "show_description": True, "filters": []},
             "auto_hook": True,
         }
 
@@ -1664,7 +1664,7 @@ class TantivyAgent:
 
   // Search settings
   "search": {
-    "default_limit": 10,          // Default number of results
+    "default_limit": 5,          // Default number of results
     "show_description": true,     // Show description in results (default: true)
     "filters": [                  // Path-based result filters
       {

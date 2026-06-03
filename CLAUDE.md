@@ -31,4 +31,4 @@ Keep this file short. Put user-facing docs in `README.md`, release history in
 ## Packaged Skill Docs
 
 The CLI prints packaged docs from `src/tantivy2agents/skills/*/SKILL.md`.
-Do not maintain duplicate copies under `.claude/skills`.
+Do not maintain duplicate skill documentation copies elsewhere.

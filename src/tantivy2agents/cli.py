@@ -386,7 +386,7 @@ def list_files(
             confidence = result["confidence"] or 0
             line += f" [{enc} ({confidence:.0%})]"
 
-        console.print(line)
+        console.print(line, markup=False)
 
     console.print(f"\n[bold]Total:[/bold] {len(files)} files")
 

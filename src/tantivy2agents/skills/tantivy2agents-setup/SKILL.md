@@ -122,7 +122,7 @@ Configuration is stored in `.tantivy2agents.json` in project root.
   },
 
   "search": {
-    "default_limit": 10,
+    "default_limit": 5,
     "show_description": true,
     "filters": [
       {
@@ -207,7 +207,7 @@ Search behavior settings.
 
 ```json
 "search": {
-  "default_limit": 10,
+  "default_limit": 5,
   "show_description": true,
   "filters": [...]
 }

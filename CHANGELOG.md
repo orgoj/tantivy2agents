@@ -2,6 +2,22 @@
 
 All notable project changes are tracked here.
 
+## [0.7.1] - 2026-06-03
+
+### Added
+- Packaged `todo-roadmap-workflow` skill for TODO-driven project work.
+- Regression coverage for the default search result limit.
+- Concrete Typer CLI tests for text, JSON, and CSV search output.
+
+### Changed
+- Isolated temporary test projects from ambient repository state.
+- Removed completed roadmap items from `TODO.md`.
+
+### Fixed
+- Restored the documented token-saving default search result limit to `5`.
+- Kept `list --encoding` output visible by disabling Rich markup parsing for
+  file rows.
+
 ## [0.7.0] - 2026-02-08
 
 ### Added

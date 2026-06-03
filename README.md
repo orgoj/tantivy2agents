@@ -84,7 +84,7 @@ Useful fields:
 - `index_dirs`: files/directories/globs to include, or objects with `exclude`.
 - `global_patterns`: default include/exclude file patterns.
 - `schema_fields`: search weights and tokenizers for fields.
-- `search.default_limit`: default result count.
+- `search.default_limit`: default result count; project default is `5`.
 - `search.show_description`: include frontmatter descriptions in output.
 - `search.filters`: hide path prefixes unless query keywords match.
 - `encoding`: default, fallback, binary, and file-specific encodings.

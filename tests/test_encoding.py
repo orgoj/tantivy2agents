@@ -30,6 +30,7 @@ def run_test(test_name, test_func):
 def test_encoding_configuration_defaults():
     """Test that encoding configuration has proper defaults"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         # Change to temp directory
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
@@ -67,6 +68,7 @@ def test_encoding_configuration_defaults():
 def test_utf8_file_reading():
     """Test reading UTF-8 encoded files"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
 
@@ -92,6 +94,7 @@ def test_utf8_file_reading():
 def test_binary_file_detection():
     """Test binary file detection and exclusion"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
 
@@ -137,6 +140,7 @@ def test_binary_file_detection():
 def test_file_specific_encoding_rules():
     """Test file-specific encoding configuration"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
 
@@ -184,6 +188,7 @@ def test_file_specific_encoding_rules():
 def test_fallback_encoding_mechanism():
     """Test fallback encoding when primary detection fails"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
 
@@ -227,6 +232,7 @@ def test_fallback_encoding_mechanism():
 def test_encoding_info_command():
     """Test the encoding-info command functionality"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
 
@@ -271,6 +277,7 @@ def test_encoding_info_command():
 def test_encoding_during_indexing():
     """Test that encoding detection works during actual indexing"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
 

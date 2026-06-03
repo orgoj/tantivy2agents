@@ -43,6 +43,7 @@ def run_cli_command(args, cwd=None):
 def test_basic_functionality():
     """Test basic agent functionality"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         # Create test config
         config = {
             "version": "1.0",
@@ -57,7 +58,7 @@ def test_basic_functionality():
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "show_description": True, "filters": []},
+            "search": {"default_limit": 5, "show_description": True, "filters": []},
             "auto_hook": False,  # Disable hooks for testing
         }
 
@@ -123,6 +124,7 @@ Complete guide for testing functionality.
 def test_config_loading():
     """Test configuration loading with defaults"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
@@ -142,6 +144,7 @@ def test_config_loading():
 def test_file_parsing():
     """Test markdown file parsing"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
@@ -181,6 +184,7 @@ This is the body content.
 def test_patterns():
     """Test file pattern matching"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
@@ -200,6 +204,7 @@ def test_patterns():
 def test_export_functionality():
     """Test result export functionality"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
@@ -256,6 +261,7 @@ def test_export_functionality():
 def test_project_detection():
     """Test project type detection"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         try:
             # Test Python project detection
@@ -303,6 +309,7 @@ def test_project_detection():
 def test_glob_patterns():
     """Test glob pattern expansion"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
@@ -385,9 +392,45 @@ def test_default_configs():
     )
 
 
+def test_default_limit_is_five_everywhere():
+    """Test that token-saving default result limit does not drift."""
+    from contextlib import redirect_stdout
+    import io
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
+        original_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            os.makedirs(".git", exist_ok=True)
+            agent = TantivyAgent()
+
+            assert agent.config["search"]["default_limit"] == 5
+
+            python_config = agent._get_default_config_for_project_type("python")
+            assert python_config["search"]["default_limit"] == 5
+
+            target_project = os.path.join(temp_dir, "target-project")
+            os.makedirs(target_project)
+            agent._create_default_config(target_project)
+            config_path = os.path.join(target_project, ".tantivy2agents.json")
+            with open(config_path, "r", encoding="utf-8") as f:
+                created_config = json.load(f)
+            assert created_config["search"]["default_limit"] == 5
+
+            captured_output = io.StringIO()
+            with redirect_stdout(captured_output):
+                agent.config_example_command()
+            assert '"default_limit": 5' in captured_output.getvalue()
+
+        finally:
+            os.chdir(original_cwd)
+
+
 def test_install_functionality():
     """Test install functionality"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
@@ -428,6 +471,7 @@ def test_install_functionality():
 def test_status_command():
     """Test status command with valid index and index_info"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         # Create test config
         config = {
             "version": "1.0",
@@ -442,7 +486,7 @@ def test_status_command():
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "show_description": True, "filters": []},
+            "search": {"default_limit": 5, "show_description": True, "filters": []},
             "auto_hook": False,  # Disable hooks for testing
         }
 
@@ -498,6 +542,7 @@ def test_status_command():
 def test_hook_clear_command():
     """Test hook-clear command"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         # Create minimal config
         config = {
             "version": "1.0",
@@ -509,7 +554,7 @@ def test_hook_clear_command():
                 "body": {"weight": 1.0, "tokenizer": "en_stem"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10},
+            "search": {"default_limit": 5},
             "auto_hook": False,
         }
 
@@ -544,6 +589,7 @@ def test_hook_clear_command():
 def test_setup_command():
     """Test setup command"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         # Create minimal config
         config = {
             "version": "1.0",
@@ -555,7 +601,7 @@ def test_setup_command():
                 "body": {"weight": 1.0, "tokenizer": "en_stem"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10},
+            "search": {"default_limit": 5},
             "auto_hook": False,
         }
 
@@ -578,6 +624,7 @@ def test_setup_command():
 def test_cli_validation():
     """Test CLI input validation"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         # Create minimal config
         config = {
             "version": "1.0",
@@ -589,7 +636,7 @@ def test_cli_validation():
                 "body": {"weight": 1.0, "tokenizer": "en_stem"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10},
+            "search": {"default_limit": 5},
             "auto_hook": False,
         }
 
@@ -616,6 +663,7 @@ def test_cli_validation():
 def test_search_filters():
     """Test search filter functionality"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         # Create config with filters
         config = {
             "version": "1.0",
@@ -631,7 +679,7 @@ def test_search_filters():
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
             "search": {
-                "default_limit": 10,
+                "default_limit": 5,
                 "show_description": True,
                 "filters": [
                     {
@@ -699,6 +747,7 @@ def test_search_filters():
 def test_search_filters_validation():
     """Test search filter configuration validation"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         # Initialize git repo
         subprocess.run(["git", "init"], cwd=temp_dir, capture_output=True)
 
@@ -772,6 +821,7 @@ def test_search_filters_validation():
 def test_output_formats():
     """Test CLI output format arguments."""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         # Create test config
         config = {
             "version": "1.0",
@@ -786,7 +836,7 @@ def test_output_formats():
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "show_description": True, "filters": []},
+            "search": {"default_limit": 5, "show_description": True, "filters": []},
             "auto_hook": False,
         }
 
@@ -831,6 +881,7 @@ def test_output_formats():
 def test_json_empty_title():
     """Test that JSON output doesn't use filename as fallback title"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         # Create test config
         config = {
             "version": "1.0",
@@ -845,7 +896,7 @@ def test_json_empty_title():
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "show_description": True, "filters": []},
+            "search": {"default_limit": 5, "show_description": True, "filters": []},
             "auto_hook": False,
         }
 
@@ -880,6 +931,7 @@ def test_json_empty_title():
 def test_description_output():
     """Test description field in search results"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         # Create test config with show_description=True
         config = {
             "version": "1.0",
@@ -894,7 +946,7 @@ def test_description_output():
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "show_description": True, "filters": []},
+            "search": {"default_limit": 5, "show_description": True, "filters": []},
             "auto_hook": False,
         }
 
@@ -947,6 +999,7 @@ This is test content about testing.
 def test_description_hidden():
     """Test description field hidden when show_description=False"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         # Create test config with show_description=False
         config = {
             "version": "1.0",
@@ -961,7 +1014,7 @@ def test_description_hidden():
                 "servers": {"weight": 1.5, "tokenizer": "default"},
                 "path": {"weight": 0.5, "tokenizer": "raw"},
             },
-            "search": {"default_limit": 10, "show_description": False, "filters": []},
+            "search": {"default_limit": 5, "show_description": False, "filters": []},
             "auto_hook": False,
         }
 
@@ -1014,10 +1067,11 @@ This is test content about testing.
 def test_search_filters_empty():
     """Test that empty filters list allows all results"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         config = {
             "version": "1.0",
             "index_dir": ".tantivy-data",
-            "search": {"default_limit": 10, "filters": []},
+            "search": {"default_limit": 5, "filters": []},
             "auto_hook": False,
         }
 
@@ -1044,6 +1098,7 @@ def test_search_filters_empty():
 def test_extract_document_fields_backward_compat():
     """Test backward compatibility - missing description field in old index"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         subprocess.run(["git", "init"], cwd=temp_dir, capture_output=True)
 
         old_cwd = os.getcwd()
@@ -1091,6 +1146,7 @@ def test_extract_document_fields_backward_compat():
 def test_excluded_directories():
     """Test that excluded directories (.git, .venv, etc.) are not indexed"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         old_cwd = os.getcwd()
         try:
             os.chdir(temp_dir)
@@ -1163,6 +1219,7 @@ def test_excluded_directories():
 def test_parsing_with_non_string_tags():
     """Test that parsing is robust to non-string tags/servers"""
     with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
@@ -1199,6 +1256,7 @@ def main():
         ("Project Detection", test_project_detection),
         ("Glob Patterns", test_glob_patterns),
         ("Default Configs", test_default_configs),
+        ("Default Limit Is Five", test_default_limit_is_five_everywhere),
         ("Install Functionality", test_install_functionality),
         ("Status Command", test_status_command),
         ("Hook Clear Command", test_hook_clear_command),
