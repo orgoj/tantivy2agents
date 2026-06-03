@@ -2,14 +2,12 @@
 Tantivy Agent - Main agent class for document indexing and search.
 """
 
-import csv
 import fnmatch
 import glob
 import json
 import logging
 import os
 import shutil
-import sys
 import time
 from datetime import datetime
 from typing import Optional
@@ -34,6 +32,13 @@ from .files import (
     expand_index_dirs,
     is_binary_file,
     match_pattern,
+)
+from .output import (
+    export_csv,
+    export_json,
+    export_results,
+    export_text,
+    extract_document_fields,
 )
 
 # Module logger
@@ -570,122 +575,19 @@ class TantivyAgent:
 
     def _export_results(self, results, query, format_output, output_file):
         """Export results in specified format"""
-        fmt = format_output.lower()
-        if fmt == "json":
-            self._export_json(results, query, output_file)
-        elif fmt == "csv":
-            self._export_csv(results, query, output_file)
-        elif fmt == "text":
-            self._export_text(results, query, output_file)
-        elif fmt == "txt":
-            # Legacy format - redirect to text
-            self._export_text(results, query, output_file)
-        else:
-            raise ValidationError(
-                message="Unsupported output format",
-                parameter="format",
-                expected="json, csv, text",
-                got=format_output,
-            )
+        export_results(results, query, format_output, output_file, self.config)
 
     def _export_json(self, results, query, output_file):
         """Export results as JSON"""
-        export_data = {
-            "query": query,
-            "timestamp": datetime.now().isoformat(),
-            "total_results": len(results),
-            "results": [],
-        }
-
-        show_description = self.config.get("search", {}).get("show_description", True)
-
-        for score, doc_address, doc in results:
-            fields = self._extract_document_fields(
-                doc, include_description=show_description
-            )
-            result_item = {"score": round(score, 4), **fields}
-            export_data["results"].append(result_item)
-
-        if output_file:
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(export_data, f, indent=2, ensure_ascii=False)
-            print(f"Results exported to {output_file}")
-        else:
-            print(json.dumps(export_data, indent=2, ensure_ascii=False))
+        export_json(results, query, output_file, self.config)
 
     def _export_csv(self, results, query, output_file):
         """Export results as CSV"""
-        if output_file:
-            file_handle = open(output_file, "w", newline="", encoding="utf-8")
-        else:
-            file_handle = sys.stdout
-
-        show_description = self.config.get("search", {}).get("show_description", True)
-
-        try:
-            writer = csv.writer(file_handle)
-
-            # Write header
-            if show_description:
-                writer.writerow(
-                    ["Score", "Path", "Title", "Description", "Tags", "Servers"]
-                )
-            else:
-                writer.writerow(["Score", "Path", "Title", "Tags", "Servers"])
-
-            # Write results
-            for score, doc_address, doc in results:
-                fields = self._extract_document_fields(
-                    doc, include_description=show_description
-                )
-                row = [f"{score:.4f}", fields["path"], fields["title"]]
-                if show_description:
-                    row.append(fields["description"])
-                row.extend([fields["tags"], fields["servers"]])
-                writer.writerow(row)
-
-            if output_file:
-                print(f"Results exported to {output_file}")
-            else:
-                print()  # Add newline after CSV output
-
-        finally:
-            if output_file:
-                file_handle.close()
+        export_csv(results, query, output_file, self.config)
 
     def _export_text(self, results, query, output_file):
         """Export results as structured text for easy parsing"""
-        if output_file:
-            file_handle = open(output_file, "w", encoding="utf-8")
-        else:
-            file_handle = sys.stdout
-
-        show_description = self.config.get("search", {}).get("show_description", True)
-
-        try:
-            for score, doc_address, doc in results:
-                fields = self._extract_document_fields(
-                    doc, include_description=show_description
-                )
-
-                file_handle.write(f"### FILE: {fields['path']}\n")
-                if fields["title"]:
-                    file_handle.write(f"TITLE: {fields['title']}\n")
-                if show_description and fields.get("description"):
-                    file_handle.write(f"DESCRIPTION: {fields['description']}\n")
-                file_handle.write(f"SCORE: {score:.4f}\n")
-                if fields["tags"]:
-                    file_handle.write(f"TAGS: {fields['tags']}\n")
-                if fields["servers"]:
-                    file_handle.write(f"SERVERS: {fields['servers']}\n")
-                file_handle.write("---\n")
-
-            if output_file:
-                print(f"Results exported to {output_file}")
-
-        finally:
-            if output_file:
-                file_handle.close()
+        export_text(results, query, output_file, self.config)
 
     def _extract_document_fields(
         self, doc, include_description: bool = True
@@ -706,17 +608,7 @@ class TantivyAgent:
         Returns:
             Dict with normalized field values (always strings, never None)
         """
-        fields = {
-            "path": doc["path"][0] if doc["path"] else "",
-            "title": doc["title"][0] if doc["title"] else "",
-            "tags": doc["tags"][0] if doc["tags"] else "",
-            "servers": doc["servers"][0] if doc["servers"] else "",
-        }
-
-        if include_description:
-            fields["description"] = doc["description"][0] if doc["description"] else ""
-
-        return fields
+        return extract_document_fields(doc, include_description=include_description)
 
     def _get_search_filters(self) -> list:
         """Get search filters from configuration.

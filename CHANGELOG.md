@@ -2,6 +2,17 @@
 
 All notable project changes are tracked here.
 
+## [0.7.9] - 2026-06-03
+
+### Added
+- `tantivy2agents.output` module for text, JSON, and CSV search result exports.
+- Direct output tests for missing Tantivy fields and file exports across all
+  public formats.
+
+### Changed
+- Delegated `TantivyAgent` result export helpers to the output module while
+  preserving existing wrapper methods and public output behavior.
+
 ## [0.7.8] - 2026-06-03
 
 ### Added

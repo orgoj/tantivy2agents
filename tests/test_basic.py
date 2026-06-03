@@ -26,6 +26,7 @@ from tantivy2agents.exceptions import (
     ValidationError,
 )
 from tantivy2agents.files import collect_files_for_indexing, expand_index_dirs
+from tantivy2agents.output import export_results, extract_document_fields
 
 
 def run_test(test_name, test_func):
@@ -1301,6 +1302,57 @@ def test_extract_document_fields_backward_compat():
             os.chdir(old_cwd)
 
 
+def test_output_module_exports_formats_and_handles_missing_fields():
+    """Test direct output formatting without a Tantivy index."""
+
+    class MockDoc:
+        def __getitem__(self, key):
+            data = {
+                "path": ["docs/guide.md"],
+                "title": ["Guide"],
+                "tags": ["docs"],
+                "servers": ["prod"],
+            }
+            return data.get(key, [])
+
+    doc = MockDoc()
+    fields = extract_document_fields(doc, include_description=True)
+    assert fields == {
+        "path": "docs/guide.md",
+        "title": "Guide",
+        "tags": "docs",
+        "servers": "prod",
+        "description": "",
+    }
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        results = [(0.75, "addr", doc)]
+        config = {"search": {"show_description": True}}
+
+        text_path = os.path.join(temp_dir, "results.txt")
+        json_path = os.path.join(temp_dir, "results.json")
+        csv_path = os.path.join(temp_dir, "results.csv")
+
+        export_results(results, "guide", "text", text_path, config)
+        export_results(results, "guide", "json", json_path, config)
+        export_results(results, "guide", "csv", csv_path, config)
+
+        with open(text_path, encoding="utf-8") as f:
+            text_content = f.read()
+        assert "### FILE: docs/guide.md" in text_content
+        assert "DESCRIPTION:" not in text_content
+
+        with open(json_path, encoding="utf-8") as f:
+            json_data = json.load(f)
+        assert json_data["query"] == "guide"
+        assert json_data["results"][0]["description"] == ""
+
+        with open(csv_path, encoding="utf-8") as f:
+            csv_content = f.read()
+        assert "Score,Path,Title,Description,Tags,Servers" in csv_content
+        assert "docs/guide.md" in csv_content
+
+
 def test_excluded_directories():
     """Test that excluded directories (.git, .venv, etc.) are not indexed"""
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1510,6 +1562,10 @@ def main():
         (
             "Extract Document Fields Backward Compat",
             test_extract_document_fields_backward_compat,
+        ),
+        (
+            "Output Module Formats",
+            test_output_module_exports_formats_and_handles_missing_fields,
         ),
         ("Output Formats", test_output_formats),
         ("Missing Index Error", test_missing_index_raises_structured_error),

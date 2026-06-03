@@ -23,29 +23,6 @@ test baseline are ambiguous.
 
 ## Phase 3: Decompose `agent.py`
 
-### 3.3 Extract search result formatting/export
-
-**Problem:** Search, filtering, field extraction, and output writers are tightly
-coupled.
-
-**Goal:** Make result formatting/export deterministic and directly testable.
-
-**Files:**
-- new `src/tantivy2agents/output.py`
-- `src/tantivy2agents/agent.py`
-- `tests/test_basic.py`
-- `tests/test_typer_cli.py`
-
-**Acceptance criteria:**
-- Text, JSON, and CSV output match existing public behavior.
-- `show_description` works consistently across all formats.
-- Missing Tantivy fields produce empty strings, not crashes.
-- `search --output` writes exactly the requested format.
-
-**Verification:**
-- `uv run python tests/test_basic.py`
-- `uv run python tests/test_typer_cli.py`
-
 ### 3.4 Keep skill docs packaged only
 
 **Problem:** The previous `.claude/skills` duplicate docs created two sources of
