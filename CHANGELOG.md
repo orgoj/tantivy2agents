@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auto-generated help text from docstrings (no hardcoded help)
 - Improved error messages with emojis and actionable hints
 - Enhanced validation with structured errors (JSON when `TANTIVY_JSON_OUTPUT=true`)
+- Declarative Typer bounds for `search --limit` (`min=1`, `max=10000`)
 
 ### Fixed
 - Robust frontmatter parsing: handle non-string values in `tags` and `servers` (fixes crash when integers are used in metadata)
@@ -32,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive Typer CLI test coverage
 
 ### Removed
-- Prioritized TODO list (TODO.md) - completed CLI redesign
+- Completed CLI refactoring items from TODO.md after landing them in this changelog
 
 ### Security
 - Identified critical security vulnerabilities requiring immediate attention

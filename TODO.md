@@ -1,12 +1,5 @@
 TODO
 
-## CLI Refactoring (v0.6.0) - Hotové ✅
-
-- Migrace z argparse na Typer framework
-- Dual-format exceptions (JSON/human)
-- Nový `list` příkaz pro preview souborů
-- 67/67 testů pass
-
 ## Code Review Doporučení k Implementaci
 
 ### 1. Konzistentní Exception Handling v agent.py
@@ -58,16 +51,16 @@ def indexed_project(tmp_path):
 **Problém**: Některé validace jsou stále manuální místo deklarativních.
 
 **Úkoly**:
-- Přidat `min`/`max` na `limit` option v `search` command
 - Vyčistit ruční validation checks, které Typer umí sám
+- Auditovat ostatní options/arguments a převést další jednoduché hranice na Typer deklarace
 
 **Příklad**:
 ```python
-# MÍSTO TOHOTO:
+# MÍSTO RUČNÍ VALIDACE V TĚLE FUNKCE:
 limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Max results")
 # ... ruční check v těle funkce
 
-# TOHOTO:
+# POUŽÍT DEKLARATIVNÍ VALIDACI, KDE TO JDE:
 limit: Optional[int] = typer.Option(None, "--limit", "-l", min=1, max=10000, help="Max results")
 ```
 
