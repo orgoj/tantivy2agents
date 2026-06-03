@@ -18,8 +18,13 @@ import tantivy
 import yaml
 
 from .czech_stemmer import normalize_czech_text
+from .config import (
+    config_example_text,
+    get_default_config_for_project_type,
+    load_config,
+    validate_search_filters,
+)
 from .exceptions import (
-    ConfigError,
     FileSystemError,
     IndexNotFoundError,
     ValidationError,
@@ -91,168 +96,14 @@ class TantivyAgent:
 
     def _load_config(self):
         """Load configuration from JSON file with defaults"""
-        default_config = {
-            "version": "1.0",
-            "index_dir": ".tantivy-data",
-            "global_patterns": {
-                "include": ["*.*"],
-                "exclude": [
-                    "*.tmp",
-                    "*~",
-                    "*.bak",
-                    "*.log",
-                    "*.swp",
-                    "*.swo",
-                    ".DS_Store",
-                    "Thumbs.db",
-                    "*.exe",
-                    "*.dll",
-                    "*.so",
-                    "*.dylib",
-                    "*.jpg",
-                    "*.jpeg",
-                    "*.png",
-                    "*.gif",
-                    "*.bmp",
-                    "*.svg",
-                    "*.pdf",
-                    "*.zip",
-                    "*.tar",
-                    "*.gz",
-                    "*.rar",
-                    "*.7z",
-                    "*.mp3",
-                    "*.mp4",
-                    "*.avi",
-                    "*.mov",
-                    "*.wav",
-                    "*.flac",
-                    "*.ogg",
-                ],
-            },
-            "index_dirs": [
-                ".",
-                {"path": ".git", "exclude": True},
-                {"path": "node_modules", "exclude": True},
-                {"path": ".venv", "exclude": True},
-                {"path": "target", "exclude": True},
-                {"path": "dist", "exclude": True},
-                {"path": "build", "exclude": True},
-            ],
-            "schema_fields": {
-                "title": {"weight": 2.0, "tokenizer": "en_stem"},
-                "description": {"weight": 1.5, "tokenizer": "en_stem"},
-                "body": {"weight": 1.0, "tokenizer": "en_stem"},
-                "tags": {"weight": 1.5, "tokenizer": "default"},
-                "servers": {"weight": 1.5, "tokenizer": "default"},
-                "path": {"weight": 0.5, "tokenizer": "raw"},
-            },
-            "search": {"default_limit": 5, "show_description": True, "filters": []},
-            "encoding": {
-                "default_encoding": "utf-8",
-                "auto_detect": True,
-                "fallback_encodings": [
-                    "utf-8",
-                    "cp1252",
-                    "iso-8859-1",
-                    "cp1250",
-                    "cp1251",
-                ],
-                "file_specific_encodings": {"*.txt": "utf-8", "*.md": "utf-8"},
-                "binary_extensions": [
-                    "*.jpg",
-                    "*.jpeg",
-                    "*.png",
-                    "*.gif",
-                    "*.bmp",
-                    "*.svg",
-                    "*.pdf",
-                    "*.zip",
-                    "*.tar",
-                    "*.gz",
-                    "*.rar",
-                    "*.exe",
-                    "*.dll",
-                    "*.so",
-                    "*.dylib",
-                ],
-                "detection_confidence_threshold": self.DEFAULT_ENCODING_CONFIDENCE_THRESHOLD,
-            },
-            "auto_hook": True,
-        }
-
-        if os.path.exists(self.config_path):
-            try:
-                with open(self.config_path, "r", encoding="utf-8") as f:
-                    user_config = json.load(f)
-                # Merge with defaults
-                config = {**default_config, **user_config}
-                self._validate_search_filters(config)
-                return config
-            except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
-                raise ConfigError(
-                    message=f"Error loading config: {e}",
-                    config_path=self.config_path,
-                ) from e
-
-        return default_config
+        return load_config(self.config_path)
 
     def _validate_search_filters(self, config: dict) -> None:
         """Validate search filter configuration.
 
         Raises ValidationError for invalid configuration.
         """
-        search_config = config.get("search", {})
-        filters = search_config.get("filters")
-
-        if filters is None:
-            return  # No filters configured
-
-        if not isinstance(filters, list):
-            raise ValidationError(
-                message="search.filters must be a list",
-                parameter="search.filters",
-                expected="list",
-                got=type(filters).__name__,
-            )
-
-        for i, f in enumerate(filters):
-            if not isinstance(f, dict):
-                raise ValidationError(
-                    message=f"search.filters[{i}] must be a dict",
-                    parameter=f"search.filters[{i}]",
-                    expected="dict",
-                    got=type(f).__name__,
-                )
-
-            # Required: paths
-            if "paths" not in f:
-                raise ValidationError(
-                    message=f"search.filters[{i}] missing required 'paths' field",
-                    parameter=f"search.filters[{i}].paths",
-                    expected="non-empty list",
-                    got="missing",
-                )
-
-            if not isinstance(f["paths"], list) or not f["paths"]:
-                raise ValidationError(
-                    message=f"search.filters[{i}].paths must be a non-empty list",
-                    parameter=f"search.filters[{i}].paths",
-                    expected="non-empty list",
-                    got=f"list with {len(f['paths'])} items"
-                    if isinstance(f["paths"], list)
-                    else type(f["paths"]).__name__,
-                )
-
-            # Validate show_on_keywords if present
-            keywords = f.get("show_on_keywords")
-            if keywords is not None and not isinstance(keywords, list):
-                raise ValidationError(
-                    message=f"search.filters[{i}].show_on_keywords must be a list",
-                    parameter=f"search.filters[{i}].show_on_keywords",
-                    expected="list",
-                    got=type(keywords).__name__,
-                )
+        validate_search_filters(config)
 
     def _ensure_data_dir(self):
         """Ensure data directory exists and is in .gitignore"""
@@ -347,90 +198,7 @@ class TantivyAgent:
 
     def _get_default_config_for_project_type(self, project_type):
         """Get default configuration based on project type"""
-        base_config = {
-            "version": "1.0",
-            "index_dir": ".tantivy-data",
-            "global_patterns": {
-                "include": ["*.md", "*.txt", "*.rst"],
-                "exclude": ["*.tmp", "*~", "*.bak", "*.log"],
-            },
-            "schema_fields": {
-                "title": {"weight": 2.0, "tokenizer": "en_stem"},
-                "description": {"weight": 1.5, "tokenizer": "en_stem"},
-                "body": {"weight": 1.0, "tokenizer": "en_stem"},
-                "tags": {"weight": 1.5, "tokenizer": "default"},
-                "servers": {"weight": 1.5, "tokenizer": "default"},
-                "path": {"weight": 0.5, "tokenizer": "raw"},
-            },
-            "search": {"default_limit": 5, "show_description": True, "filters": []},
-            "auto_hook": True,
-        }
-
-        project_configs = {
-            "python": {
-                "index_dirs": [
-                    "docs/**",
-                    "src/**/*.md",
-                    "tests/**/*.md",
-                    "*.md",
-                    {"path": ".venv", "exclude": True},
-                    {"path": "__pycache__", "exclude": True},
-                    {"path": "**/.*", "exclude": True},
-                ]
-            },
-            "nodejs": {
-                "index_dirs": [
-                    "docs/**",
-                    "src/**/*.md",
-                    "*.md",
-                    {"path": "node_modules", "exclude": True},
-                    {"path": "dist", "exclude": True},
-                    {"path": "build", "exclude": True},
-                    {"path": "**/.*", "exclude": True},
-                ]
-            },
-            "java": {
-                "index_dirs": [
-                    "docs/**",
-                    "src/**/*.md",
-                    "*.md",
-                    {"path": "target", "exclude": True},
-                    {"path": ".idea", "exclude": True},
-                    {"path": "**/.*", "exclude": True},
-                ]
-            },
-            "rust": {
-                "index_dirs": [
-                    "docs/**",
-                    "src/**/*.md",
-                    "*.md",
-                    {"path": "target", "exclude": True},
-                    {"path": "**/.*", "exclude": True},
-                ]
-            },
-            "generic": {
-                "index_dirs": [
-                    "docs/**",
-                    "*.md",
-                    "*.txt",
-                    "*.rst",
-                    {"path": "**/.*", "exclude": True},
-                    {"path": "node_modules", "exclude": True},
-                    {"path": "target", "exclude": True},
-                    {"path": "dist", "exclude": True},
-                    {"path": "build", "exclude": True},
-                ]
-            },
-        }
-
-        # Merge base config with project-specific config
-        config = base_config.copy()
-        if project_type in project_configs:
-            config.update(project_configs[project_type])
-        else:
-            config.update(project_configs["generic"])
-
-        return config
+        return get_default_config_for_project_type(project_type)
 
     def _expand_glob_patterns(self, pattern_list):
         """Expand glob patterns to actual directory/file paths"""
@@ -1635,96 +1403,7 @@ class TantivyAgent:
 
     def config_example_command(self) -> None:
         """Print example configuration with explanations"""
-        example = """{
-  // Configuration file: .tantivy2agents.json
-  // Place in project root directory
-
-  "version": "1.0",
-
-  // Where to store the index (relative to project root)
-  "index_dir": ".tantivy-data",
-
-  // Global patterns applied to all files
-  "global_patterns": {
-    "include": ["*.md", "*.txt", "*.rst"],  // File types to index
-    "exclude": [                             // Files to skip
-      "*.tmp", "*~", "*.bak", "*.log",
-      "*.exe", "*.dll", "*.so",
-      "*.jpg", "*.png", "*.pdf"
-    ]
-  },
-
-  // Directories to index (relative to project root)
-  // Use glob patterns like "src/**/*.md" for recursive matching
-  "index_dirs": [
-    ".",                                    // Current directory
-    "docs/**/*.md",                         // All .md files in docs/
-    {"path": ".git", "exclude": true},      // Exclude .git directory
-    {"path": "node_modules", "exclude": true},
-    {"path": ".venv", "exclude": true},
-    {"path": "target", "exclude": true}
-  ],
-
-  // Search field configuration with weights
-  "schema_fields": {
-    "title": {"weight": 2.0, "tokenizer": "en_stem"},   // Higher weight = more important
-    "description": {"weight": 1.5, "tokenizer": "en_stem"},  // From YAML frontmatter
-    "body": {"weight": 1.0, "tokenizer": "en_stem"},
-    "tags": {"weight": 1.5, "tokenizer": "default"},
-    "path": {"weight": 0.5, "tokenizer": "raw"}
-  },
-
-  // Search settings
-  "search": {
-    "default_limit": 5,          // Default number of results
-    "show_description": true,     // Show description in results (default: true)
-    "filters": [                  // Path-based result filters
-      {
-        "name": "incidents",      // Filter name (for debugging)
-        "paths": ["incidents/"],  // Paths to filter
-        "hidden": true,           // Hide by default
-        "show_on_keywords": ["incident", "emergency"]  // Keywords that show results
-      }
-    ]
-  },
-
-  // Encoding detection settings
-  "encoding": {
-    "default_encoding": "utf-8",
-    "auto_detect": true,
-    "fallback_encodings": ["utf-8", "cp1252", "iso-8859-1", "cp1250"],
-    "detection_confidence_threshold": 0.7
-  },
-
-  // Automatically install Claude Code hooks
-  "auto_hook": true
-}
-
-QUICK START:
-  1. Run 'tantivy2agents install' in your project - auto-detects project type
-  2. Or create .tantivy2agents.json manually with above template
-  3. Run 'tantivy2agents index' to build the index
-  4. Run 'tantivy2agents search "your query"' to search
-
-PROJECT TYPE AUTO-DETECTION:
-  - Python: indexes docs/, src/**/*.md, *.md (excludes .venv, __pycache__)
-  - Node.js: indexes docs/, src/**/*.md (excludes node_modules)
-  - Java/Rust/Go: indexes docs/, src/**/*.md (excludes target/, build/)
-  - Generic: indexes docs/, *.md, *.txt
-
-MARKDOWN FRONTMATTER:
-  Files with YAML frontmatter are parsed for metadata:
-  ---
-  title: Document Title
-  description: Brief summary of the document content
-  tags: [api, guide]
-  servers: [prod, staging]
-  ---
-  Document content here...
-
-  The description field is shown in search results when show_description is true.
-"""
-        print(example)
+        print(config_example_text())
 
     def _find_skill_file(self, skill_name: str) -> str:
         """Find skill file path.

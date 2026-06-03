@@ -13,6 +13,12 @@ import subprocess
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
 from tantivy2agents import TantivyAgent
+from tantivy2agents.config import (
+    config_example_text,
+    default_config,
+    get_default_config_for_project_type,
+    load_config,
+)
 from tantivy2agents.exceptions import (
     ConfigError,
     FileSystemError,
@@ -163,6 +169,80 @@ def test_malformed_config_raises_config_error():
                 assert ".tantivy2agents.json" in e.context["config_path"]
         finally:
             os.chdir(original_cwd)
+
+
+def test_config_module_defaults_match_agent_defaults():
+    """Test config module is the source of agent defaults."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
+        original_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            agent = TantivyAgent()
+            defaults = default_config()
+
+            assert defaults["search"]["default_limit"] == 5
+            assert agent.config == defaults
+            assert "servers" in defaults["schema_fields"]
+        finally:
+            os.chdir(original_cwd)
+
+
+def test_config_module_project_defaults_match_agent_wrapper():
+    """Test project-type defaults are shared by install and direct config code."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
+        original_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            agent = TantivyAgent()
+            python_config = get_default_config_for_project_type("python")
+
+            assert python_config == agent._get_default_config_for_project_type("python")
+            assert python_config["search"]["default_limit"] == 5
+            assert any(
+                isinstance(item, dict)
+                and item.get("path") == ".venv"
+                and item.get("exclude")
+                for item in python_config["index_dirs"]
+            )
+        finally:
+            os.chdir(original_cwd)
+
+
+def test_load_config_merges_defaults_and_validates_filters():
+    """Test config loading merges user values with defaults and validates filters."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "index_dir": "custom-index",
+                    "search": {"default_limit": 7, "filters": "invalid"},
+                },
+                f,
+            )
+
+        try:
+            load_config(config_path)
+            assert False, "Invalid filters should raise ValidationError"
+        except ValidationError as e:
+            assert "search.filters must be a list" in str(e)
+
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump({"index_dir": "custom-index"}, f)
+
+        loaded = load_config(config_path)
+        assert loaded["index_dir"] == "custom-index"
+        assert loaded["search"]["default_limit"] == 5
+        assert "schema_fields" in loaded
+
+
+def test_config_example_uses_current_defaults():
+    """Test config-example text reflects current default fields and limit."""
+    example = config_example_text()
+    assert '"default_limit": 5' in example
+    assert '"servers": {"weight": 1.5, "tokenizer": "default"}' in example
 
 
 def test_file_parsing():
@@ -1328,6 +1408,16 @@ def main():
         ("Basic Functionality", test_basic_functionality),
         ("Config Loading", test_config_loading),
         ("Malformed Config Error", test_malformed_config_raises_config_error),
+        ("Config Module Defaults", test_config_module_defaults_match_agent_defaults),
+        (
+            "Config Module Project Defaults",
+            test_config_module_project_defaults_match_agent_wrapper,
+        ),
+        (
+            "Config Load Validation",
+            test_load_config_merges_defaults_and_validates_filters,
+        ),
+        ("Config Example Defaults", test_config_example_uses_current_defaults),
         ("File Parsing", test_file_parsing),
         ("Pattern Matching", test_patterns),
         ("Export Functionality", test_export_functionality),

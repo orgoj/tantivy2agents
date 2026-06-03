@@ -2,6 +2,19 @@
 
 All notable project changes are tracked here.
 
+## [0.7.7] - 2026-06-03
+
+### Added
+- `tantivy2agents.config` module for runtime defaults, project-type defaults,
+  config loading, search filter validation, and config-example text.
+- Direct config unit tests for defaults, project defaults, validation, and
+  config-example drift.
+
+### Changed
+- Delegated `TantivyAgent` config loading, validation, install-created defaults,
+  and config-example output to the config module while preserving existing
+  wrapper methods.
+
 ## [0.7.6] - 2026-06-03
 
 ### Changed

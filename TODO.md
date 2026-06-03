@@ -23,29 +23,6 @@ test baseline are ambiguous.
 
 ## Phase 3: Decompose `agent.py`
 
-### 3.1 Extract configuration loading and validation
-
-**Problem:** Config defaults, loading, validation, examples, and install-time
-generation are spread through a large `TantivyAgent` class.
-
-**Goal:** Move config behavior behind a small, testable module.
-
-**Files:**
-- new `src/tantivy2agents/config.py`
-- `src/tantivy2agents/agent.py`
-- `tests/`
-
-**Acceptance criteria:**
-- Default config is defined in one place.
-- Validation errors use structured exceptions.
-- `config-example`, install-created config, and agent defaults agree.
-- Default result limit remains `5`.
-- Existing config file format remains backwards compatible.
-
-**Verification:**
-- `uv run python run_tests.py`
-- Add direct config unit tests.
-
 ### 3.2 Extract file discovery and path filtering
 
 **Problem:** File collection, glob expansion, includes/excludes, encoding skips,
