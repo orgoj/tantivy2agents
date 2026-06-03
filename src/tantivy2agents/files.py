@@ -14,7 +14,16 @@ WHITESPACE_CHARS = (9, 10, 13)
 
 def match_pattern(path: str, pattern: str) -> bool:
     """Match a path against a glob pattern."""
-    return fnmatch.fnmatch(path, pattern)
+    normalized_path = path.replace(os.sep, "/")
+    normalized_pattern = pattern.replace(os.sep, "/")
+
+    if fnmatch.fnmatch(normalized_path, normalized_pattern):
+        return True
+
+    if "/" not in normalized_pattern:
+        return fnmatch.fnmatch(os.path.basename(normalized_path), normalized_pattern)
+
+    return False
 
 
 def expand_index_dirs(

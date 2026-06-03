@@ -241,6 +241,31 @@ def test_load_config_merges_defaults_and_validates_filters():
         assert "schema_fields" in loaded
 
 
+def test_load_config_preserves_default_exclude_patterns():
+    """Test custom global_patterns keep built-in excludes."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "global_patterns": {
+                        "include": ["*.md"],
+                        "exclude": ["project-local.md"],
+                    }
+                },
+                f,
+            )
+
+        loaded = load_config(config_path)
+        excludes = loaded["global_patterns"]["exclude"]
+
+        assert loaded["global_patterns"]["include"] == ["*.md"]
+        assert "project-local.md" in excludes
+        assert "AGENTS.md" in excludes
+        assert "CLAUDE.md" in excludes
+        assert "GEMINI.md" in excludes
+
+
 def test_index_path_validation_rejects_unsafe_paths():
     """Test index storage and discovery paths must stay project-relative."""
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1550,6 +1575,30 @@ def test_file_discovery_module_handles_globs_excludes_and_binary():
         assert "build/ignored.md" not in rel_files
         assert "docs/image.jpg" not in rel_files
         assert rel_dirs == []
+
+
+def test_file_discovery_excludes_agent_instruction_files_by_default():
+    """Test agent instruction files are skipped even in nested directories."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, "docs"), exist_ok=True)
+        for rel_path in [
+            "AGENTS.md",
+            "CLAUDE.md",
+            "GEMINI.md",
+            os.path.join("docs", "AGENTS.md"),
+            os.path.join("docs", "guide.md"),
+        ]:
+            with open(os.path.join(temp_dir, rel_path), "w", encoding="utf-8") as f:
+                f.write("# Test\n")
+
+        config = default_config()
+        config["global_patterns"]["include"] = ["*.md"]
+        config["index_dirs"] = ["."]
+
+        files, _dirs = collect_files_for_indexing(config, temp_dir)
+        rel_files = [os.path.relpath(path, temp_dir) for path in files]
+
+        assert rel_files == [os.path.join("docs", "guide.md")]
 
 
 def test_agent_file_discovery_wrapper_matches_module():

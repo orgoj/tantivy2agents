@@ -10,6 +10,7 @@ from typing import Any
 from .exceptions import ConfigError, ValidationError
 
 DEFAULT_ENCODING_CONFIDENCE_THRESHOLD = 0.7
+AGENT_INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md", "GEMINI.md"]
 
 
 def default_config() -> dict[str, Any]:
@@ -51,6 +52,7 @@ def default_config() -> dict[str, Any]:
                 "*.wav",
                 "*.flac",
                 "*.ogg",
+                *AGENT_INSTRUCTION_FILES,
             ],
         },
         "index_dirs": [
@@ -111,7 +113,7 @@ def _base_project_config() -> dict[str, Any]:
         "index_dir": ".tantivy-data",
         "global_patterns": {
             "include": ["*.md", "*.txt", "*.rst"],
-            "exclude": ["*.tmp", "*~", "*.bak", "*.log"],
+            "exclude": ["*.tmp", "*~", "*.bak", "*.log", *AGENT_INSTRUCTION_FILES],
         },
         "schema_fields": {
             "title": {"weight": 2.0, "tokenizer": "en_stem"},
@@ -324,9 +326,39 @@ def load_config(config_path: str) -> dict[str, Any]:
         ) from e
 
     config = {**defaults, **user_config}
+    config["global_patterns"] = _merge_global_patterns(
+        defaults.get("global_patterns", {}),
+        user_config.get("global_patterns", {}),
+    )
     validate_index_paths(config)
     validate_search_filters(config)
     return config
+
+
+def _merge_global_patterns(
+    default_patterns: dict[str, Any], user_patterns: dict[str, Any]
+) -> dict[str, Any]:
+    """Merge pattern config while keeping built-in excludes active."""
+    if not isinstance(user_patterns, dict):
+        return copy.deepcopy(default_patterns)
+
+    merged = copy.deepcopy(default_patterns)
+    merged.update(user_patterns)
+
+    default_excludes = default_patterns.get("exclude", [])
+    user_excludes = user_patterns.get("exclude", [])
+    if isinstance(default_excludes, list) and isinstance(user_excludes, list):
+        merged["exclude"] = _unique_list([*default_excludes, *user_excludes])
+
+    return merged
+
+
+def _unique_list(items: list[Any]) -> list[Any]:
+    unique_items = []
+    for item in items:
+        if item not in unique_items:
+            unique_items.append(item)
+    return unique_items
 
 
 def config_example_text() -> str:

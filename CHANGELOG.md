@@ -2,6 +2,14 @@
 
 All notable project changes are tracked here.
 
+## [0.7.15] - 2026-06-03
+
+### Changed
+- Exclude `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md` from indexing by default,
+  including existing configs that define custom `global_patterns`.
+- Match filename-only include/exclude patterns against basenames as well as
+  project-relative paths, so default file exclusions apply in nested folders.
+
 ## [0.7.14] - 2026-06-03
 
 ### Changed
