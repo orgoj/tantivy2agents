@@ -1,10 +1,68 @@
 # tantivy2agents
 
-Local CLI for indexing and searching project documentation with Tantivy.
+Local documentation search for coding agents.
 
-It is meant for developer-owned local repositories. It builds a `.tantivy-data/`
-index from configured files, searches it with BM25 ranking, and can install
-Claude Code hooks that mark the index stale after file edits.
+`tantivy2agents` gives a developer-owned repository a fast local Tantivy index
+over the project documents an agent needs for its work: server guides, previous
+incidents, runbooks, setup docs, Markdown notes, and other configured text files.
+The primary use case is server-management repositories where operational
+knowledge lives in committed files shared by everyone using the repo.
+
+The goal is not to replace source-code search. The goal is to make committed
+project documentation cheap to query during agent work, without sending the
+whole repository into a prompt and without depending on a remote service.
+
+The CLI builds a `.tantivy-data/` index inside the project, searches it with BM25
+ranking, and can install Claude Code hooks that mark the index stale after file
+edits. Search output is intentionally compact by default so agents can consume
+results with low token cost.
+
+## Purpose
+
+This project is for local, agent-facing documentation retrieval from files that
+belong to the repository:
+
+- keep shared project knowledge searchable from the command line;
+- let coding agents find relevant guides before changing servers or code;
+- surface previous incidents when they are relevant to the current task;
+- avoid indexing generated artifacts, dependency directories, binary files, and
+  agent instruction files by default;
+- support machine-readable result formats for agent/tool integrations;
+- keep all index data local to the repository owner.
+
+It is deliberately not a full code intelligence engine, vector database, chat
+memory system, MCP memory layer, or hosted search product. The durable memory is
+the repository itself: files are committed, reviewed, and shared with all users
+of the repo. Use `rg` for exact code search; use `tantivy2agents` when the
+question is "which guide, incident, runbook, or project note should the agent
+read first?"
+
+## Project Fit Review
+
+The current implementation already matches the core purpose in several ways:
+
+- project-type detection creates conservative documentation-focused configs;
+- `list` previews what will be indexed before writing an index;
+- index and output paths are constrained to the project root unless explicitly
+  overridden;
+- search results support compact text, JSON, and CSV;
+- Markdown frontmatter can improve ranking and filtering;
+- Czech text normalization helps local documentation written in Czech;
+- packaged `skill-usage` and `skill-setup` commands make the installed tool
+  self-documenting for agents.
+
+The most useful future improvements should strengthen agent usability rather
+than broaden the tool into generic search:
+
+- add a first-class "agent query" output shape with stable, minimal fields and
+  snippets from matched guides/incidents;
+- make stale-index handling visible in `search` so agents know when to reindex;
+- expose safer defaults for common server-management documentation layouts
+  through generated config profiles;
+- add small quality checks for configs that accidentally index too much or too
+  little;
+- continue decomposing `agent.py` only where it reduces risk in CLI behavior or
+  testability.
 
 ## Install
 
