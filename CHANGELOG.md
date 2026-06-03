@@ -2,6 +2,14 @@
 
 All notable project changes are tracked here.
 
+## [0.7.14] - 2026-06-03
+
+### Changed
+- Completed repository hygiene pass: confirmed no untracked non-ignored files,
+  kept tracked Markdown limited to project and packaged CLI docs, and left
+  ignored local artifacts in place.
+- Expanded `.gitignore` for common local cache and coverage outputs.
+
 ## [0.7.13] - 2026-06-03
 
 ### Added

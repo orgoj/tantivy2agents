@@ -27,25 +27,4 @@ test baseline are ambiguous.
 
 ## Phase 5: Safety and Maintenance
 
-### 5.2 Keep repository hygiene simple
-
-**Problem:** Agent/session files, cache directories, and generated test fixtures
-should not become project documentation.
-
-**Goal:** Keep git-tracked files focused on code, tests, package metadata, and
-current docs.
-
-**Files:**
-- `.gitignore`
-- `README.md`
-- `TODO.md`
-
-**Acceptance criteria:**
-- Ignored temp/cache/local agent files may exist locally and are not repeatedly
-  deleted just for cleanliness.
-- `git ls-files --others --exclude-standard` is empty before commits.
-- Markdown docs remain limited to current project docs and packaged CLI docs.
-
-**Verification:**
-- `git status --short`
-- `git ls-files --others --exclude-standard`
+No open roadmap items.
