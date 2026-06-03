@@ -133,6 +133,10 @@ def test_all_commands_available():
     for cmd in commands:
         assert cmd in result.stdout, f"Command '{cmd}' not found in help"
 
+    assert "Internal hook support" in result.stdout
+    assert "Print packaged usage guide" in result.stdout
+    assert "Print packaged setup/configuration guide" in result.stdout
+
 
 def test_index_command_help():
     """Test index command help output."""

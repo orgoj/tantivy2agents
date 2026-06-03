@@ -25,28 +25,6 @@ test baseline are ambiguous.
 
 ## Phase 4: CLI and UX Polish
 
-### 4.2 Clarify command boundaries
-
-**Problem:** Some commands are user-facing (`search`, `index`, `status`) while
-others are internal or documentation helpers (`hook-clear`, `skill-*`).
-
-**Goal:** Make help text and docs clear without adding command groups.
-
-**Files:**
-- `src/tantivy2agents/cli.py`
-- `README.md`
-- packaged skill docs
-
-**Acceptance criteria:**
-- `--help` clearly describes public commands.
-- `hook-clear` is marked as hook/internal support.
-- `skill-usage` and `skill-setup` are described as packaged docs.
-- No new command groups unless there is a separate approved design.
-
-**Verification:**
-- `uv run tantivy2agents --help`
-- `uv run python tests/test_typer_cli.py`
-
 ## Phase 5: Safety and Maintenance
 
 ### 5.1 Add safe path handling for destructive/output operations

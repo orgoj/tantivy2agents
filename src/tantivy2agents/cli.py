@@ -264,7 +264,7 @@ def hook_clear(
         False, "--quiet", "-q", help="Suppress informational output"
     ),
 ) -> None:
-    """Mark index as outdated (used by Claude hooks).
+    """Internal hook support: mark index as outdated.
 
     Internal command used by Claude Code hooks to trigger reindexing
     after files are modified.
@@ -292,7 +292,7 @@ def skill_usage(
         False, "--quiet", "-q", help="Suppress informational output"
     ),
 ) -> None:
-    """Output usage documentation (daily commands).
+    """Print packaged usage guide.
 
     Displays comprehensive usage guide with examples and best practices.
 
@@ -315,7 +315,7 @@ def skill_setup(
         False, "--quiet", "-q", help="Suppress informational output"
     ),
 ) -> None:
-    """Output setup documentation (configuration).
+    """Print packaged setup/configuration guide.
 
     Displays detailed setup and configuration guide.
 

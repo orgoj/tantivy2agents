@@ -320,10 +320,10 @@ tantivy2agents config-example
 
 **View usage documentation:**
 ```bash
-tantivy2agents skill-usage   # Daily usage commands
+tantivy2agents skill-usage   # Packaged daily usage guide
 ```
 
 **Show setup guide (this file):**
 ```bash
-tantivy2agents skill-setup
+tantivy2agents skill-setup   # Packaged setup/configuration guide
 ```

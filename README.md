@@ -49,9 +49,9 @@ tantivy2agents status
 | `clear` | Delete index data |
 | `encoding-info` | Analyze encodings for indexed files |
 | `config-example` | Print a full config template |
-| `hook-clear` | Mark index stale; used by Claude hooks |
-| `skill-usage` | Print the packaged usage guide |
-| `skill-setup` | Print the packaged setup/configuration guide |
+| `hook-clear` | Internal hook support; mark index stale after edits |
+| `skill-usage` | Print the packaged usage guide from the installed package |
+| `skill-setup` | Print the packaged setup/configuration guide from the installed package |
 
 Common options:
 

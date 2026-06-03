@@ -2,6 +2,16 @@
 
 All notable project changes are tracked here.
 
+## [0.7.12] - 2026-06-03
+
+### Changed
+- Clarified CLI help and docs for internal hook support and packaged guide
+  commands without introducing command groups.
+
+### Added
+- Help text regression checks for `hook-clear`, `skill-usage`, and
+  `skill-setup` command descriptions.
+
 ## [0.7.11] - 2026-06-03
 
 ### Changed

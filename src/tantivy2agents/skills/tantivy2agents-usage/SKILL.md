@@ -75,9 +75,11 @@ tantivy2agents status
 ```bash
 tantivy2agents clear            # Delete index
 tantivy2agents config-example   # Show config template
-tantivy2agents hook-clear       # Mark index outdated (for hooks)
+tantivy2agents hook-clear       # Internal hook support; mark index outdated
 tantivy2agents encoding-info    # Analyze file encodings
 tantivy2agents list             # Preview files without indexing
+tantivy2agents skill-usage      # Print this packaged usage guide
+tantivy2agents skill-setup      # Print packaged setup/configuration guide
 ```
 
 ## Output Format Examples
