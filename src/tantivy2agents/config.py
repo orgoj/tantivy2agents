@@ -246,6 +246,67 @@ def validate_search_filters(config: dict[str, Any]) -> None:
             )
 
 
+def validate_index_paths(config: dict[str, Any]) -> None:
+    """Validate index storage and discovery paths stay project-relative."""
+    index_dir = config.get("index_dir")
+    if not isinstance(index_dir, str) or not index_dir:
+        raise ValidationError(
+            message="index_dir must be a non-empty relative path",
+            parameter="index_dir",
+            expected="relative path",
+            got=type(index_dir).__name__,
+        )
+    _validate_project_relative_path(index_dir, "index_dir")
+
+    index_dirs = config.get("index_dirs")
+    if not isinstance(index_dirs, list):
+        raise ValidationError(
+            message="index_dirs must be a list",
+            parameter="index_dirs",
+            expected="list",
+            got=type(index_dirs).__name__,
+        )
+
+    for i, item in enumerate(index_dirs):
+        if isinstance(item, str):
+            _validate_project_relative_path(item, f"index_dirs[{i}]")
+        elif isinstance(item, dict):
+            path = item.get("path", "")
+            if not isinstance(path, str) or not path:
+                raise ValidationError(
+                    message=f"index_dirs[{i}].path must be a non-empty relative path",
+                    parameter=f"index_dirs[{i}].path",
+                    expected="relative path",
+                    got=type(path).__name__,
+                )
+            _validate_project_relative_path(path, f"index_dirs[{i}].path")
+        else:
+            raise ValidationError(
+                message=f"index_dirs[{i}] must be a path or object",
+                parameter=f"index_dirs[{i}]",
+                expected="string or object",
+                got=type(item).__name__,
+            )
+
+
+def _validate_project_relative_path(path: str, parameter: str) -> None:
+    if os.path.isabs(path):
+        raise ValidationError(
+            message=f"{parameter} must be relative to the project root",
+            parameter=parameter,
+            expected="relative path",
+            got=path,
+        )
+
+    if ".." in path.split(os.sep) or ".." in path.split("/"):
+        raise ValidationError(
+            message=f"{parameter} must not contain parent traversal",
+            parameter=parameter,
+            expected="path without '..'",
+            got=path,
+        )
+
+
 def load_config(config_path: str) -> dict[str, Any]:
     """Load configuration from JSON file with defaults."""
     defaults = default_config()
@@ -263,6 +324,7 @@ def load_config(config_path: str) -> dict[str, Any]:
         ) from e
 
     config = {**defaults, **user_config}
+    validate_index_paths(config)
     validate_search_filters(config)
     return config
 

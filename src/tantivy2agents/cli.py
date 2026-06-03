@@ -97,6 +97,11 @@ def search(
         OutputFormat.text, "--format", "-f", help="Output format"
     ),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save to file"),
+    allow_outside_output: bool = typer.Option(
+        False,
+        "--allow-outside-output",
+        help="Allow --output to write outside the project root",
+    ),
     config: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file"
     ),
@@ -125,7 +130,7 @@ def search(
         )
 
     agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
-    agent.search_command(query, limit, format.value, output)
+    agent.search_command(query, limit, format.value, output, allow_outside_output)
 
 
 @app.command()
@@ -284,6 +289,11 @@ def hook_clear(
 @app.command()
 def skill_usage(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save to file"),
+    allow_outside_output: bool = typer.Option(
+        False,
+        "--allow-outside-output",
+        help="Allow --output to write outside the project root",
+    ),
     config: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file"
     ),
@@ -301,12 +311,17 @@ def skill_usage(
         tantivy2agents skill-usage -o guide.md
     """
     agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
-    agent.skill_usage_command(output)
+    agent.skill_usage_command(output, allow_outside_output)
 
 
 @app.command()
 def skill_setup(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Save to file"),
+    allow_outside_output: bool = typer.Option(
+        False,
+        "--allow-outside-output",
+        help="Allow --output to write outside the project root",
+    ),
     config: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file"
     ),
@@ -324,7 +339,7 @@ def skill_setup(
         tantivy2agents skill-setup -o setup.md
     """
     agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
-    agent.skill_setup_command(output)
+    agent.skill_setup_command(output, allow_outside_output)
 
 
 # =============================================================================

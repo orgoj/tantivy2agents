@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from tantivy2agents.cli import app
-from tantivy2agents.exceptions import IndexNotFoundError
+from tantivy2agents.exceptions import IndexNotFoundError, ValidationError
 
 runner = CliRunner()
 SRC_PATH = Path(__file__).resolve().parents[1] / "src"
@@ -46,20 +46,24 @@ class StubAgent:
         self.quiet = quiet
         StubAgent.calls.append(("init", config_path, verbose, quiet))
 
-    def search_command(self, query, limit, output_format, output):
-        StubAgent.calls.append(("search", query, limit, output_format, output))
+    def search_command(
+        self, query, limit, output_format, output, allow_outside_output=False
+    ):
+        StubAgent.calls.append(
+            ("search", query, limit, output_format, output, allow_outside_output)
+        )
         print(f"searched {query} as {output_format}")
 
     def status_command(self):
         StubAgent.calls.append(("status",))
         print("status ok")
 
-    def skill_usage_command(self, output):
-        StubAgent.calls.append(("skill_usage", output))
+    def skill_usage_command(self, output, allow_outside_output=False):
+        StubAgent.calls.append(("skill_usage", output, allow_outside_output))
         print("usage docs")
 
-    def skill_setup_command(self, output):
-        StubAgent.calls.append(("skill_setup", output))
+    def skill_setup_command(self, output, allow_outside_output=False):
+        StubAgent.calls.append(("skill_setup", output, allow_outside_output))
         print("setup docs")
 
     def config_example_command(self):
@@ -178,9 +182,9 @@ def test_search_format_option_dispatches_to_agent(stub_agent):
         assert f"searched test as {fmt}" in result.stdout
 
     assert [call for call in stub_agent.calls if call[0] == "search"] == [
-        ("search", "test", None, "json", None),
-        ("search", "test", None, "csv", None),
-        ("search", "test", None, "text", None),
+        ("search", "test", None, "json", None, False),
+        ("search", "test", None, "csv", None, False),
+        ("search", "test", None, "text", None, False),
     ]
 
 
@@ -329,6 +333,49 @@ def test_search_output_option_writes_requested_formats():
         assert "docs/guide.md" in csv_content
 
 
+def test_search_output_rejects_outside_project_without_opt_in():
+    """Test --output refuses paths outside project root unless explicitly allowed."""
+    with runner.isolated_filesystem():
+        create_search_project()
+        result = runner.invoke(app, ["index"])
+        assert result.exit_code == 0
+
+        outside_path = Path.cwd().parent / f"outside-results-{os.getpid()}.json"
+        try:
+            result = runner.invoke(
+                app,
+                [
+                    "search",
+                    "testing",
+                    "--format",
+                    "json",
+                    "--output",
+                    str(outside_path),
+                ],
+            )
+            assert result.exit_code == 1
+            assert isinstance(result.exception, ValidationError)
+            assert not outside_path.exists()
+
+            result = runner.invoke(
+                app,
+                [
+                    "search",
+                    "testing",
+                    "--format",
+                    "json",
+                    "--output",
+                    str(outside_path),
+                    "--allow-outside-output",
+                ],
+            )
+            assert result.exit_code == 0
+            assert outside_path.exists()
+        finally:
+            if outside_path.exists():
+                outside_path.unlink()
+
+
 def test_index_dirs_and_files_options_show_concrete_paths():
     """Test index --dirs and --files show processed directories and files."""
     with runner.isolated_filesystem():
@@ -451,7 +498,7 @@ def test_skill_usage_command(stub_agent):
     result = runner.invoke(app, ["skill-usage"])
     assert result.exit_code == 0
     assert result.stdout == "usage docs\n"
-    assert ("skill_usage", None) in stub_agent.calls
+    assert ("skill_usage", None, False) in stub_agent.calls
 
 
 def test_skill_setup_command(stub_agent):
@@ -459,7 +506,7 @@ def test_skill_setup_command(stub_agent):
     result = runner.invoke(app, ["skill-setup"])
     assert result.exit_code == 0
     assert result.stdout == "setup docs\n"
-    assert ("skill_setup", None) in stub_agent.calls
+    assert ("skill_setup", None, False) in stub_agent.calls
 
 
 def test_config_example_command(stub_agent):

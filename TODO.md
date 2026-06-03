@@ -27,30 +27,6 @@ test baseline are ambiguous.
 
 ## Phase 5: Safety and Maintenance
 
-### 5.1 Add safe path handling for destructive/output operations
-
-**Problem:** Local CLI tools can still damage user files through accidents:
-unsafe output paths, symlinked index dirs, or broad configured paths.
-
-**Goal:** Add pragmatic local safety checks for operations that can overwrite or
-delete files. This is accident prevention for a local CLI, not web security.
-
-**Files:**
-- `src/tantivy2agents/agent.py`
-- extracted config/files modules after Phase 3
-- `tests/`
-
-**Acceptance criteria:**
-- `clear` does not follow symlinked index directories destructively.
-- Output paths outside the project are rejected unless an explicit opt-in flag is
-  added and documented.
-- Suspicious absolute/parent-traversal index patterns fail clearly.
-- Behavior is documented in README or setup skill.
-
-**Verification:**
-- Add tests using temp dirs and symlinks where supported by the platform.
-- `uv run python run_tests.py`
-
 ### 5.2 Keep repository hygiene simple
 
 **Problem:** Agent/session files, cache directories, and generated test fixtures

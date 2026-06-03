@@ -119,6 +119,7 @@ class TantivyAgent:
     def _ensure_data_dir(self):
         """Ensure data directory exists and is in .gitignore"""
         data_dir = os.path.join(self.project_root, self.config["index_dir"])
+        self._ensure_safe_index_path(data_dir)
         os.makedirs(data_dir, exist_ok=True)
 
         # Add to .gitignore if not present
@@ -137,6 +138,58 @@ class TantivyAgent:
                 f.write(f"# Tantivy Agent data\n{gitignore_entry}\n")
 
         return data_dir
+
+    def _ensure_safe_index_path(self, path: str) -> None:
+        """Reject index paths that could escape or follow symlinks."""
+        abs_path = os.path.abspath(path)
+        if os.path.islink(abs_path):
+            raise FileSystemError(
+                message="Refusing to use symlinked index directory",
+                path=abs_path,
+            )
+
+        project_root = os.path.realpath(self.project_root)
+        real_path = os.path.realpath(abs_path)
+        if os.path.commonpath([project_root, real_path]) != project_root:
+            raise FileSystemError(
+                message="Index directory must stay inside the project root",
+                path=abs_path,
+            )
+
+    def _remove_index_path(self, path: str) -> bool:
+        """Remove an index directory after safety checks."""
+        if not os.path.exists(path):
+            return False
+        self._ensure_safe_index_path(path)
+        if not os.path.isdir(path):
+            raise FileSystemError(
+                message="Index path is not a directory",
+                path=os.path.abspath(path),
+            )
+        shutil.rmtree(path)
+        return True
+
+    def _prepare_output_file(
+        self, output_file: Optional[str], allow_outside_project: bool = False
+    ) -> Optional[str]:
+        if not output_file:
+            return None
+
+        output_path = os.path.abspath(output_file)
+        project_root = os.path.realpath(self.project_root)
+        real_output_path = os.path.realpath(output_path)
+        if (
+            not allow_outside_project
+            and os.path.commonpath([project_root, real_output_path]) != project_root
+        ):
+            raise ValidationError(
+                message="Output path is outside the project root",
+                parameter="output",
+                expected="path inside project root or --allow-outside-output",
+                got=output_file,
+            )
+
+        return output_file
 
     def _detect_project_type(self):
         """Detect project type based on common indicators"""
@@ -479,8 +532,7 @@ class TantivyAgent:
             return
 
         # Remove old index and create new directory
-        if os.path.exists(index_dir):
-            shutil.rmtree(index_dir)
+        self._remove_index_path(index_dir)
         os.makedirs(index_dir, exist_ok=True)
 
         # Create schema and index
@@ -516,6 +568,7 @@ class TantivyAgent:
         limit: Optional[int] = None,
         format_output: Optional[str] = None,
         output_file: Optional[str] = None,
+        allow_outside_output: bool = False,
     ) -> None:
         """Search in indexed documents"""
         if not query:
@@ -524,6 +577,7 @@ class TantivyAgent:
                 parameter="query",
                 got="(empty)",
             )
+        output_file = self._prepare_output_file(output_file, allow_outside_output)
 
         data_dir = os.path.join(self.project_root, self.config["index_dir"])
         index_dir = os.path.join(data_dir, "idx")
@@ -689,8 +743,7 @@ class TantivyAgent:
 
         data_dir = os.path.join(self.project_root, self.config["index_dir"])
 
-        if os.path.exists(data_dir):
-            shutil.rmtree(data_dir)
+        if self._remove_index_path(data_dir):
             print(f"Cleared index directory: {data_dir}")
         else:
             print("No index directory found")
@@ -834,6 +887,7 @@ class TantivyAgent:
         # This is called by Claude hooks - check if any indexed files were modified
         # For now, just clear the index to be safe
         data_dir = os.path.join(self.project_root, self.config["index_dir"])
+        self._ensure_safe_index_path(data_dir)
 
         if os.path.exists(data_dir):
             index_info_path = os.path.join(data_dir, "index_info.json")
@@ -847,7 +901,7 @@ class TantivyAgent:
                     f.truncate()
             else:
                 # No index info, remove directory
-                shutil.rmtree(data_dir)
+                self._remove_index_path(data_dir)
 
     def encoding_info_command(self) -> None:
         """Show encoding information for files that would be indexed"""
@@ -1129,7 +1183,9 @@ class TantivyAgent:
             path=package_skill_path,
         )
 
-    def skill_usage_command(self, output_file: Optional[str] = None) -> None:
+    def skill_usage_command(
+        self, output_file: Optional[str] = None, allow_outside_output: bool = False
+    ) -> None:
         """Output usage skill content in markdown format.
 
         Args:
@@ -1140,6 +1196,7 @@ class TantivyAgent:
             with open(skill_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
+            output_file = self._prepare_output_file(output_file, allow_outside_output)
             if output_file:
                 with open(output_file, "w", encoding="utf-8") as f:
                     f.write(content)
@@ -1152,7 +1209,9 @@ class TantivyAgent:
                 message=f"Error reading skill file: {e}", path=skill_path
             ) from e
 
-    def skill_setup_command(self, output_file: Optional[str] = None) -> None:
+    def skill_setup_command(
+        self, output_file: Optional[str] = None, allow_outside_output: bool = False
+    ) -> None:
         """Output setup skill content in markdown format.
 
         Args:
@@ -1163,6 +1222,7 @@ class TantivyAgent:
             with open(skill_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
+            output_file = self._prepare_output_file(output_file, allow_outside_output)
             if output_file:
                 with open(output_file, "w", encoding="utf-8") as f:
                     f.write(content)

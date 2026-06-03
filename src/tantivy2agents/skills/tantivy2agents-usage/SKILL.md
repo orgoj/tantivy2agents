@@ -45,12 +45,15 @@ tantivy2agents search "query" --format csv
 tantivy2agents search "query" --format text
 tantivy2agents search "query" --limit 5    # Limit results
 tantivy2agents search "query" -o out.json  # Save to file
+tantivy2agents search "query" -o /tmp/out.json --allow-outside-output
 ```
 
 **Output formats:**
 - `--format text` - Structured text (default)
 - `--format json` - JSON with metadata
 - `--format csv` - CSV table
+- `--output` paths must stay inside the project unless
+  `--allow-outside-output` is provided
 
 **Search features:**
 - BM25 ranking (higher score = better match)

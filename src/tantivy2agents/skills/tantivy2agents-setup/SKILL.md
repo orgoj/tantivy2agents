@@ -159,6 +159,9 @@ Directory for storing index data (auto-added to .gitignore).
 "index_dir": ".tantivy-data"
 ```
 
+Use a project-relative path without `..`. Commands that create or delete index
+data refuse symlinked index directories.
+
 ### global_patterns
 Default file patterns for all directories.
 
@@ -179,6 +182,9 @@ Directories to index. Use string (include) or object (exclude).
   {"path": ".git", "exclude": true} // Exclude directory
 ]
 ```
+
+Paths and glob patterns must be relative to the project root and must not
+contain `..`.
 
 **Glob pattern support:**
 - `docs/**` - Recursive docs directory

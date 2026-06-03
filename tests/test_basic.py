@@ -241,6 +241,29 @@ def test_load_config_merges_defaults_and_validates_filters():
         assert "schema_fields" in loaded
 
 
+def test_index_path_validation_rejects_unsafe_paths():
+    """Test index storage and discovery paths must stay project-relative."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        config_path = os.path.join(temp_dir, ".tantivy2agents.json")
+
+        unsafe_configs = [
+            {"index_dir": "/tmp/tantivy-index"},
+            {"index_dir": "../tantivy-index"},
+            {"index_dirs": ["/tmp/docs"]},
+            {"index_dirs": [{"path": "../docs", "exclude": False}]},
+        ]
+
+        for config in unsafe_configs:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f)
+
+            try:
+                load_config(config_path)
+                assert False, f"Unsafe config should fail: {config}"
+            except ValidationError as e:
+                assert "relative" in str(e) or "parent traversal" in str(e)
+
+
 def test_config_example_uses_current_defaults():
     """Test config-example text reflects current default fields and limit."""
     example = config_example_text()
@@ -691,6 +714,35 @@ def test_hook_clear_command():
         with open(index_info_path) as f:
             index_info = json.load(f)
         assert index_info.get("outdated") is True, "Index should be marked as outdated"
+
+
+def test_clear_refuses_symlinked_index_directory():
+    """Test clear does not follow a symlinked index directory."""
+    if not hasattr(os, "symlink"):
+        return
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
+        outside_dir = os.path.join(temp_dir, "outside-index")
+        os.makedirs(outside_dir)
+        sentinel_path = os.path.join(outside_dir, "sentinel.txt")
+        with open(sentinel_path, "w", encoding="utf-8") as f:
+            f.write("keep")
+
+        os.symlink(outside_dir, os.path.join(temp_dir, ".tantivy-data"))
+
+        original_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            agent = TantivyAgent()
+            try:
+                agent.clear_command()
+                assert False, "Symlinked index directory should be refused"
+            except FileSystemError as e:
+                assert "symlinked index directory" in str(e)
+                assert os.path.exists(sentinel_path)
+        finally:
+            os.chdir(original_cwd)
 
 
 def test_setup_command():
@@ -1579,6 +1631,7 @@ def main():
             "Config Load Validation",
             test_load_config_merges_defaults_and_validates_filters,
         ),
+        ("Index Path Safety", test_index_path_validation_rejects_unsafe_paths),
         ("Config Example Defaults", test_config_example_uses_current_defaults),
         ("File Parsing", test_file_parsing),
         ("Pattern Matching", test_patterns),
@@ -1590,6 +1643,7 @@ def main():
         ("Install Functionality", test_install_functionality),
         ("Status Command", test_status_command),
         ("Hook Clear Command", test_hook_clear_command),
+        ("Clear Symlink Safety", test_clear_refuses_symlinked_index_directory),
         ("Setup Command", test_setup_command),
         ("CLI Validation", test_cli_validation),
         ("Search Filters", test_search_filters),

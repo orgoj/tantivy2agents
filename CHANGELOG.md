@@ -2,6 +2,20 @@
 
 All notable project changes are tracked here.
 
+## [0.7.13] - 2026-06-03
+
+### Added
+- Safe path checks for index storage, configured index patterns, and output
+  files that could otherwise escape the project root.
+- `--allow-outside-output` opt-in for commands that write `--output` files
+  outside the project root.
+- Regression coverage for unsafe config paths, outside output paths, and
+  symlinked index directory deletion.
+
+### Changed
+- `clear`, `hook-clear`, and index rebuild cleanup refuse symlinked index
+  directories instead of following them.
+
 ## [0.7.12] - 2026-06-03
 
 ### Changed

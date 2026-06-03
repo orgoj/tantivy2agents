@@ -61,12 +61,16 @@ tantivy2agents index --dirs --files
 tantivy2agents list --pattern "*.md" --size --encoding
 tantivy2agents search "api config" --limit 5
 tantivy2agents search "api config" --format json --output results.json
+tantivy2agents search "api config" --output /tmp/results.json --allow-outside-output
 TANTIVY_JSON_OUTPUT=true tantivy2agents search "" 2>&1
 ```
 
 `search --format` accepts `text`, `json`, and `csv`. The default is compact
 `text`: it shows path, title, score, tags, and servers. Frontmatter
 descriptions are opt-in with `search.show_description: true`.
+
+Output files must stay inside the project root unless
+`--allow-outside-output` is provided.
 
 ## Configuration
 
@@ -82,8 +86,10 @@ Minimal `.tantivy2agents.json`:
 
 Useful fields:
 
-- `index_dir`: where index data is stored; default is `.tantivy-data`.
+- `index_dir`: where index data is stored; default is `.tantivy-data`. Must be
+  a relative path without `..`; symlinked index directories are refused.
 - `index_dirs`: files/directories/globs to include, or objects with `exclude`.
+  Patterns must be relative to the project root and must not contain `..`.
 - `global_patterns`: default include/exclude file patterns.
 - `schema_fields`: search weights and tokenizers for fields.
 - `search.default_limit`: default result count; project default is `5`.
