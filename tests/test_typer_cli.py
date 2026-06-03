@@ -3,13 +3,58 @@
 import json
 import os
 import sys
+from pathlib import Path
 from typer.testing import CliRunner
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from tantivy2agents.cli import app
 
 runner = CliRunner()
+
+
+class StubAgent:
+    """Test double for command plumbing that should not touch an index."""
+
+    calls = []
+
+    def __init__(self, config_path=None, verbose=False, quiet=False):
+        self.config_path = config_path
+        self.verbose = verbose
+        self.quiet = quiet
+        StubAgent.calls.append(("init", config_path, verbose, quiet))
+
+    def search_command(self, query, limit, output_format, output):
+        StubAgent.calls.append(("search", query, limit, output_format, output))
+        print(f"searched {query} as {output_format}")
+
+    def status_command(self):
+        StubAgent.calls.append(("status",))
+        print("status ok")
+
+    def skill_usage_command(self, output):
+        StubAgent.calls.append(("skill_usage", output))
+        print("usage docs")
+
+    def skill_setup_command(self, output):
+        StubAgent.calls.append(("skill_setup", output))
+        print("setup docs")
+
+    def config_example_command(self):
+        StubAgent.calls.append(("config_example",))
+        print('{"version": "1.0", "index_dir": ".tantivy-data"}')
+
+
+@pytest.fixture
+def stub_agent(monkeypatch):
+    """Replace TantivyAgent in the CLI module and reset recorded calls."""
+    from tantivy2agents import cli
+
+    StubAgent.calls = []
+    monkeypatch.setattr(cli, "TantivyAgent", StubAgent)
+    return StubAgent
 
 
 def create_search_project() -> None:
@@ -101,12 +146,18 @@ def test_list_command_help():
 # =============================================================================
 
 
-def test_format_accepts_valid_values():
+def test_search_format_option_dispatches_to_agent(stub_agent):
     """Test that --format accepts all valid values."""
     for fmt in ["json", "csv", "text"]:
         result = runner.invoke(app, ["search", "test", "--format", fmt])
-        # Command should run (may fail if no index, but format should be accepted)
-        assert "invalid" not in result.stdout.lower()
+        assert result.exit_code == 0
+        assert f"searched test as {fmt}" in result.stdout
+
+    assert [call for call in stub_agent.calls if call[0] == "search"] == [
+        ("search", "test", None, "json", None),
+        ("search", "test", None, "csv", None),
+        ("search", "test", None, "text", None),
+    ]
 
 
 def test_format_enum_validation():
@@ -261,25 +312,28 @@ def test_clear_status_workflow():
 # =============================================================================
 
 
-def test_skill_usage_command():
+def test_skill_usage_command(stub_agent):
     """Test skill-usage documentation command."""
     result = runner.invoke(app, ["skill-usage"])
     assert result.exit_code == 0
-    assert len(result.stdout) > 0
+    assert result.stdout == "usage docs\n"
+    assert ("skill_usage", None) in stub_agent.calls
 
 
-def test_skill_setup_command():
+def test_skill_setup_command(stub_agent):
     """Test skill-setup documentation command."""
     result = runner.invoke(app, ["skill-setup"])
     assert result.exit_code == 0
-    assert len(result.stdout) > 0
+    assert result.stdout == "setup docs\n"
+    assert ("skill_setup", None) in stub_agent.calls
 
 
-def test_config_example_command():
+def test_config_example_command(stub_agent):
     """Test config-example command."""
     result = runner.invoke(app, ["config-example"])
     assert result.exit_code == 0
-    assert "version" in result.stdout or "index_dir" in result.stdout
+    assert result.stdout == '{"version": "1.0", "index_dir": ".tantivy-data"}\n'
+    assert ("config_example",) in stub_agent.calls
 
 
 # =============================================================================
@@ -287,11 +341,14 @@ def test_config_example_command():
 # =============================================================================
 
 
-def test_config_option():
-    """Test --config option is recognized."""
-    result = runner.invoke(app, ["--config", "/tmp/test.json", "status"])
-    # May fail if config doesn't exist, but option should be recognized
-    assert result is not None  # Command was invoked
+def test_config_option_passes_path_to_agent(stub_agent, tmp_path):
+    """Test --config option is passed to TantivyAgent."""
+    config_path = tmp_path / "custom.json"
+    result = runner.invoke(app, ["status", "--config", str(config_path)])
+    assert result.exit_code == 0
+    assert result.stdout == "status ok\n"
+    assert stub_agent.calls[0] == ("init", str(config_path), False, False)
+    assert stub_agent.calls[1] == ("status",)
 
 
 def test_verbose_quiet_options():
@@ -314,3 +371,7 @@ def test_limit_validation():
 
     result = runner.invoke(app, ["search", "test", "--limit", "100000"])
     assert result.exit_code != 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([str(Path(__file__))]))

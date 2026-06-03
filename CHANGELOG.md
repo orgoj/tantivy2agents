@@ -2,6 +2,17 @@
 
 All notable project changes are tracked here.
 
+## [0.7.3] - 2026-06-03
+
+### Changed
+- Isolated command-level Typer CLI tests from repository index/config state by
+  monkeypatching `TantivyAgent` where indexing internals are not under test.
+- Made `tests/test_typer_cli.py` executable as a standalone verification command.
+
+### Fixed
+- Replaced loose CLI assertions with concrete output and dispatch checks for
+  documentation, config, status, and search format options.
+
 ## [0.7.2] - 2026-06-03
 
 ### Changed

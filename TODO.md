@@ -19,29 +19,6 @@ test baseline are ambiguous.
 
 ## Phase 1: Test Suite Stabilization
 
-### 1.2 Isolate CLI tests from repository state
-
-**Problem:** `tests/test_typer_cli.py` uses `CliRunner` against ambient project
-state, so behavior can depend on current cwd, index files, config files, and
-previous tests.
-
-**Goal:** Make CLI tests deterministic and cheap.
-
-**Files:**
-- `tests/test_typer_cli.py`
-- optional `tests/conftest.py`
-
-**Acceptance criteria:**
-- Tests use isolated temp projects (`tmp_path` or `CliRunner.isolated_filesystem`).
-- Unit-level CLI tests monkeypatch `TantivyAgent` where indexing/search internals
-  are not the thing under test.
-- Integration-level CLI tests create their own config and files.
-- Assertions check concrete output/exit behavior, not only loose substrings.
-
-**Verification:**
-- `uv run python tests/test_typer_cli.py`
-- `uv run python run_tests.py`
-
 ### 1.3 Add coverage for user-facing options
 
 **Problem:** TODO coverage gaps remain around important CLI flags and edge cases.
