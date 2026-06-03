@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typer.testing import CliRunner
@@ -11,8 +12,27 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from tantivy2agents.cli import app
+from tantivy2agents.exceptions import IndexNotFoundError
 
 runner = CliRunner()
+SRC_PATH = Path(__file__).resolve().parents[1] / "src"
+
+
+def run_module_command(args, env=None):
+    """Run the package CLI through its main entrypoint."""
+    command_env = os.environ.copy()
+    command_env["PYTHONPATH"] = (
+        str(SRC_PATH) + os.pathsep + command_env.get("PYTHONPATH", "")
+    )
+    if env:
+        command_env.update(env)
+
+    return subprocess.run(
+        [sys.executable, "-m", "tantivy2agents", *args],
+        capture_output=True,
+        text=True,
+        env=command_env,
+    )
 
 
 class StubAgent:
@@ -318,37 +338,69 @@ def test_index_dirs_and_files_options_show_concrete_paths():
 
 
 def test_missing_index_behavior_in_text_and_json_env_modes():
-    """Test missing index output before structured error cleanup."""
+    """Test missing index raises through the Typer app."""
     with runner.isolated_filesystem():
         create_search_project()
 
         text_result = runner.invoke(app, ["search", "testing"])
-        assert text_result.exit_code == 0
-        assert (
-            text_result.stdout == "Index not found. Run 'tantivy2agents index' first\n"
-        )
+        assert text_result.exit_code == 1
+        assert text_result.stdout == ""
+        assert isinstance(text_result.exception, IndexNotFoundError)
 
         env = os.environ.copy()
         env["TANTIVY_JSON_OUTPUT"] = "true"
         json_env_result = runner.invoke(app, ["search", "testing"], env=env)
-        assert json_env_result.exit_code == 0
-        assert (
-            json_env_result.stdout
-            == "Index not found. Run 'tantivy2agents index' first\n"
-        )
+        assert json_env_result.exit_code == 1
+        assert json_env_result.stdout == ""
+        assert isinstance(json_env_result.exception, IndexNotFoundError)
 
 
-def test_empty_index_directory_edge_case_is_explicit(caplog):
+def test_empty_index_directory_edge_case_is_explicit():
     """Test current behavior when an index directory exists but is unusable."""
     with runner.isolated_filesystem():
         create_search_project()
         os.makedirs(".tantivy-data/idx", exist_ok=True)
 
         result = runner.invoke(app, ["search", "testing"])
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         assert result.stdout == ""
-        assert "Search error:" in caplog.text
-        assert "meta.json" in caplog.text
+        assert isinstance(result.exception, IndexNotFoundError)
+
+
+def test_missing_index_json_error_from_main_entrypoint():
+    """Test TANTIVY_JSON_OUTPUT formats missing index errors as JSON."""
+    with runner.isolated_filesystem():
+        create_search_project()
+
+        result = run_module_command(
+            ["search", "testing"], env={"TANTIVY_JSON_OUTPUT": "true"}
+        )
+        assert result.returncode == 1
+        assert result.stdout == ""
+
+        error_data = json.loads(result.stderr)
+        assert error_data["success"] is False
+        assert error_data["error"]["message"] == "Search index not found or outdated"
+        assert error_data["error"]["exit_code"] == 1
+        assert error_data["error"]["context"]["index_dir"].endswith(".tantivy-data/idx")
+
+
+def test_malformed_config_json_error_from_main_entrypoint():
+    """Test TANTIVY_JSON_OUTPUT formats malformed config errors as JSON."""
+    with runner.isolated_filesystem():
+        os.makedirs(".git", exist_ok=True)
+        Path(".tantivy2agents.json").write_text("{not valid json")
+
+        result = run_module_command(["status"], env={"TANTIVY_JSON_OUTPUT": "true"})
+        assert result.returncode == 1
+        assert result.stdout == ""
+
+        error_data = json.loads(result.stderr)
+        assert error_data["success"] is False
+        assert "Error loading config" in error_data["error"]["message"]
+        assert error_data["error"]["context"]["config_path"].endswith(
+            ".tantivy2agents.json"
+        )
 
 
 # =============================================================================

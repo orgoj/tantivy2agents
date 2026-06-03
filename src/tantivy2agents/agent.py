@@ -18,7 +18,12 @@ import tantivy
 import yaml
 
 from .czech_stemmer import normalize_czech_text
-from .exceptions import ValidationError
+from .exceptions import (
+    ConfigError,
+    FileSystemError,
+    IndexNotFoundError,
+    ValidationError,
+)
 
 # Module logger
 logger = logging.getLogger(__name__)
@@ -185,8 +190,10 @@ class TantivyAgent:
                 self._validate_search_filters(config)
                 return config
             except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
-                logger.warning("Error loading config: %s", e)
-                logger.warning("Using default configuration.")
+                raise ConfigError(
+                    message=f"Error loading config: {e}",
+                    config_path=self.config_path,
+                ) from e
 
         return default_config
 
@@ -933,15 +940,17 @@ class TantivyAgent:
     ) -> None:
         """Search in indexed documents"""
         if not query:
-            print("Please provide a search query")
-            return
+            raise ValidationError(
+                message="Search query cannot be empty",
+                parameter="query",
+                got="(empty)",
+            )
 
         data_dir = os.path.join(self.project_root, self.config["index_dir"])
         index_dir = os.path.join(data_dir, "idx")
 
         if not os.path.exists(index_dir):
-            print("Index not found. Run 'tantivy2agents index' first")
-            return
+            raise IndexNotFoundError(index_dir=index_dir)
 
         try:
             # Load index
@@ -983,7 +992,7 @@ class TantivyAgent:
             )
 
         except (OSError, ValueError, RuntimeError) as e:
-            logger.error("Search error: %s", e)
+            raise IndexNotFoundError(index_dir=index_dir) from e
 
     def _export_results(self, results, query, format_output, output_file):
         """Export results in specified format"""
@@ -998,9 +1007,12 @@ class TantivyAgent:
             # Legacy format - redirect to text
             self._export_text(results, query, output_file)
         else:
-            print(f"Unsupported format: {format_output}")
-            print("Supported formats: json, csv, text")
-            return
+            raise ValidationError(
+                message="Unsupported output format",
+                parameter="format",
+                expected="json, csv, text",
+                got=format_output,
+            )
 
     def _export_json(self, results, query, output_file):
         """Export results as JSON"""
@@ -1726,7 +1738,7 @@ MARKDOWN FRONTMATTER:
             Path to skill file
 
         Raises:
-            FileNotFoundError: If skill file cannot be found
+            FileSystemError: If skill file cannot be found
         """
         this_file_dir = os.path.dirname(os.path.abspath(__file__))
         package_skill_path = os.path.join(
@@ -1735,10 +1747,9 @@ MARKDOWN FRONTMATTER:
         if os.path.exists(package_skill_path):
             return package_skill_path
 
-        raise FileNotFoundError(
-            f"Skill file not found: {skill_name}\n"
-            f"Searched location:\n"
-            f"  - {package_skill_path}"
+        raise FileSystemError(
+            message=f"Skill file not found: {skill_name}",
+            path=package_skill_path,
         )
 
     def skill_usage_command(self, output_file: Optional[str] = None) -> None:
@@ -1759,12 +1770,10 @@ MARKDOWN FRONTMATTER:
                     print(f"✓ Usage skill written to: {output_file}")
             else:
                 print(content)
-        except FileNotFoundError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
         except OSError as e:
-            print(f"Error reading skill file: {e}", file=sys.stderr)
-            sys.exit(1)
+            raise FileSystemError(
+                message=f"Error reading skill file: {e}", path=skill_path
+            ) from e
 
     def skill_setup_command(self, output_file: Optional[str] = None) -> None:
         """Output setup skill content in markdown format.
@@ -1784,9 +1793,7 @@ MARKDOWN FRONTMATTER:
                     print(f"✓ Setup skill written to: {output_file}")
             else:
                 print(content)
-        except FileNotFoundError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(1)
         except OSError as e:
-            print(f"Error reading skill file: {e}", file=sys.stderr)
-            sys.exit(1)
+            raise FileSystemError(
+                message=f"Error reading skill file: {e}", path=skill_path
+            ) from e

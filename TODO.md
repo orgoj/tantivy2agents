@@ -21,36 +21,6 @@ test baseline are ambiguous.
 
 ## Phase 2: Error Handling Cleanup
 
-### 2.1 Replace user-facing error prints with structured exceptions
-
-**Problem:** `agent.py` still mixes normal output, error `print()`, returns, and
-`sys.exit(1)`. This makes JSON errors inconsistent and makes CLI behavior harder
-to test.
-
-**Goal:** Use `CLIError` subclasses for user-facing failures while keeping normal
-command output as plain output.
-
-**Files:**
-- `src/tantivy2agents/agent.py`
-- `src/tantivy2agents/exceptions.py`
-- `src/tantivy2agents/cli.py`
-- `tests/test_basic.py`
-- `tests/test_typer_cli.py`
-
-**Acceptance criteria:**
-- Malformed config raises `ConfigError`.
-- Missing index during `search` raises `IndexNotFoundError`.
-- Missing packaged skill docs raise a structured file/system error.
-- Unsupported formats cannot reach `agent.py` in normal CLI usage; direct calls
-  still fail clearly.
-- `TANTIVY_JSON_OUTPUT=true` returns machine-readable errors for these cases.
-- Normal informational output from successful `index`, `status`, `install`,
-  `encoding-info`, and `list` is preserved.
-
-**Verification:**
-- `uv run python run_tests.py`
-- Add focused JSON error tests in `tests/test_typer_cli.py`.
-
 ### 2.2 Remove direct `sys.exit()` from library-like code
 
 **Problem:** `sys.exit()` inside `TantivyAgent` makes direct unit tests and reuse

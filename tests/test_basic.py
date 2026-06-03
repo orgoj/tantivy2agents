@@ -13,7 +13,12 @@ import subprocess
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
 from tantivy2agents import TantivyAgent
-from tantivy2agents.exceptions import ValidationError
+from tantivy2agents.exceptions import (
+    ConfigError,
+    FileSystemError,
+    IndexNotFoundError,
+    ValidationError,
+)
 
 
 def run_test(test_name, test_func):
@@ -137,6 +142,25 @@ def test_config_loading():
             assert "." in agent.config["index_dirs"]
             assert "title" in agent.config["schema_fields"]
 
+        finally:
+            os.chdir(original_cwd)
+
+
+def test_malformed_config_raises_config_error():
+    """Test malformed JSON config reports a structured config error."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
+        with open(os.path.join(temp_dir, ".tantivy2agents.json"), "w") as f:
+            f.write("{not valid json")
+
+        original_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            try:
+                TantivyAgent()
+                assert False, "Malformed config should raise ConfigError"
+            except ConfigError as e:
+                assert ".tantivy2agents.json" in e.context["config_path"]
         finally:
             os.chdir(original_cwd)
 
@@ -878,6 +902,59 @@ def test_output_formats():
         assert "Score,Path,Title" in result.stdout, "CSV output should have headers"
 
 
+def test_missing_index_raises_structured_error():
+    """Test search without an index raises a structured error."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
+        original_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            agent = TantivyAgent()
+            try:
+                agent.search_command("test")
+                assert False, "Missing index should raise IndexNotFoundError"
+            except IndexNotFoundError as e:
+                assert ".tantivy-data/idx" in str(e.context.get("index_dir", ""))
+        finally:
+            os.chdir(original_cwd)
+
+
+def test_unsupported_direct_output_format_raises_validation_error():
+    """Test direct unsupported output format fails clearly."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
+        original_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            agent = TantivyAgent()
+            try:
+                agent._export_results([], "test", "xml", None)
+                assert False, "Unsupported format should raise ValidationError"
+            except ValidationError as e:
+                assert "Unsupported output format" in str(e)
+                assert e.context["parameter"] == "format"
+        finally:
+            os.chdir(original_cwd)
+
+
+def test_missing_packaged_skill_raises_file_system_error():
+    """Test missing packaged skill docs raise structured file errors."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
+        original_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            agent = TantivyAgent()
+            try:
+                agent._find_skill_file("missing-skill")
+                assert False, "Missing skill should raise FileSystemError"
+            except FileSystemError as e:
+                assert "missing-skill" in str(e)
+                assert "SKILL.md" in e.context["path"]
+        finally:
+            os.chdir(original_cwd)
+
+
 def test_json_empty_title():
     """Test that JSON output doesn't use filename as fallback title"""
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1250,6 +1327,7 @@ def main():
     tests = [
         ("Basic Functionality", test_basic_functionality),
         ("Config Loading", test_config_loading),
+        ("Malformed Config Error", test_malformed_config_raises_config_error),
         ("File Parsing", test_file_parsing),
         ("Pattern Matching", test_patterns),
         ("Export Functionality", test_export_functionality),
@@ -1270,6 +1348,15 @@ def main():
             test_extract_document_fields_backward_compat,
         ),
         ("Output Formats", test_output_formats),
+        ("Missing Index Error", test_missing_index_raises_structured_error),
+        (
+            "Unsupported Direct Output Format",
+            test_unsupported_direct_output_format_raises_validation_error,
+        ),
+        (
+            "Missing Packaged Skill Error",
+            test_missing_packaged_skill_raises_file_system_error,
+        ),
         ("JSON Empty Title", test_json_empty_title),
         ("Description Output", test_description_output),
         ("Description Hidden", test_description_hidden),

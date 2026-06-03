@@ -2,6 +2,17 @@
 
 All notable project changes are tracked here.
 
+## [0.7.5] - 2026-06-03
+
+### Added
+- Structured error regression tests for malformed config, missing indexes,
+  missing packaged skill docs, unsupported direct output formats, and JSON error
+  output from the CLI entrypoint.
+
+### Changed
+- Replaced user-facing config, search, skill-doc, and direct output-format error
+  prints/log-only returns with `CLIError` subclasses.
+
 ## [0.7.4] - 2026-06-03
 
 ### Added
