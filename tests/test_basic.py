@@ -770,7 +770,7 @@ def test_search_filters_validation():
 
 
 def test_output_formats():
-    """Test CLI output format arguments (-j, -T, -c)"""
+    """Test CLI output format arguments."""
     with tempfile.TemporaryDirectory() as temp_dir:
         # Create test config
         config = {

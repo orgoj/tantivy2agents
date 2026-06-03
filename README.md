@@ -1,154 +1,144 @@
-# tantivy2agents - Full-text search for project documentation
+# tantivy2agents
 
-[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+Local CLI for indexing and searching project documentation with Tantivy.
 
-Full-text search CLI for project documentation using Tantivy (Rust). BM25 ranking, YAML frontmatter parsing, Claude Code hook integration.
+It is meant for developer-owned local repositories. It builds a `.tantivy-data/`
+index from configured files, searches it with BM25 ranking, and can install
+Claude Code hooks that mark the index stale after file edits.
 
-## Documentation
+## Install
 
-**Usage Guide** → See [tantivy2agents-usage skill](.claude/skills/tantivy2agents-usage/SKILL.md)
-- Daily commands: search, index, status
-- Output formats
-- Examples and best practices
+Run from git without installing:
 
-**Setup Guide** → See [tantivy2agents-setup skill](.claude/skills/tantivy2agents-setup/SKILL.md)
-- Installation (uvx, pip)
-- Configuration (.tantivy2agents.json)
-- Claude Code hooks
+```bash
+uvx --from git+https://github.com/orgoj/tantivy2agents tantivy2agents --help
+```
+
+Install into the current environment:
+
+```bash
+uv pip install git+https://github.com/orgoj/tantivy2agents
+```
+
+Development setup:
+
+```bash
+mise run install
+uv run tantivy2agents --help
+```
 
 ## Quick Start
 
 ```bash
-# Install and setup (auto-detects project type)
 tantivy2agents install
-
-# Build index
-tantivy2agents index
-
-# Search documentation
-tantivy2agents search "your query"
-
-# Get documentation via CLI
-tantivy2agents skill-usage   # View usage guide
-tantivy2agents skill-setup   # View setup guide
-```
-
-## Installation
-
-### Using uvx (Recommended - No Installation)
-
-```bash
-# Run directly from git
-uvx --from git+https://github.com/orgoj/tantivy2agents tantivy2agents install
-uvx --from git+https://github.com/orgoj/tantivy2agents tantivy2agents index
-uvx --from git+https://github.com/orgoj/tantivy2agents tantivy2agents search "query"
-```
-
-### Using uv or pip
-
-```bash
-# Install from git
-uv pip install git+https://github.com/orgoj/tantivy2agents
-# Or with pip
-pip install git+https://github.com/orgoj/tantivy2agents
-
-# Now use directly
-tantivy2agents install
+tantivy2agents list
 tantivy2agents index
 tantivy2agents search "your query"
+tantivy2agents status
 ```
 
-### Development Setup
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `install` | Detect project type, create `.tantivy2agents.json`, install hooks |
+| `list` | Preview files that would be indexed |
+| `index` | Build or update the search index |
+| `search "query"` | Search indexed documents |
+| `status` | Show index statistics |
+| `clear` | Delete index data |
+| `encoding-info` | Analyze encodings for indexed files |
+| `config-example` | Print a full config template |
+| `hook-clear` | Mark index stale; used by Claude hooks |
+| `skill-usage` | Print the packaged usage guide |
+| `skill-setup` | Print the packaged setup/configuration guide |
+
+Common options:
 
 ```bash
-# Clone repository
-git clone https://github.com/orgoj/tantivy2agents
-cd tantivy2agents
-
-# Install dependencies
-uv sync
-uv run pre-commit install
-
-# Install local version (updates your global tantivy2agents command)
-uv tool install --reinstall .
-
-# Run tests
-uv run python run_tests.py
+tantivy2agents index --force
+tantivy2agents index --dirs --files
+tantivy2agents list --pattern "*.md" --size --encoding
+tantivy2agents search "api config" --limit 5
+tantivy2agents search "api config" --format json --output results.json
+TANTIVY_JSON_OUTPUT=true tantivy2agents search "" 2>&1
 ```
 
-## Features
-
-- **Modern Python packaging** - Install with `uv` or `pip`, run with `uvx`
-- **Czech language support** - Built-in stemmer for Czech morphology
-- **Flexible configuration** - JSON-based config with global and directory-specific patterns
-- **Automatic data management** - Data stored outside repository with auto .gitignore
-- **Claude Code integration** - Automatic hook installation for real-time index updates
-- **Incremental indexing** - Only reindex when files change
-- **Universal design** - Works in any project (Python, Node.js, Java, Rust, Generic)
+`search --format` accepts `text`, `json`, and `csv`. The default is `text`.
 
 ## Configuration
 
-Create `.tantivy2agents.json` in your project root:
+Minimal `.tantivy2agents.json`:
 
 ```json
 {
   "version": "1.0",
   "index_dir": ".tantivy-data",
-  "index_dirs": ["docs", "guides"]
+  "index_dirs": ["docs", "guides", "*.md"]
 }
 ```
 
-Run `tantivy2agents install` to auto-generate optimal configuration for your project type.
+Useful fields:
 
-For advanced configuration (schema fields, search filters, encoding settings), see [tantivy2agents-setup skill](.claude/skills/tantivy2agents-setup/SKILL.md).
+- `index_dir`: where index data is stored; default is `.tantivy-data`.
+- `index_dirs`: files/directories/globs to include, or objects with `exclude`.
+- `global_patterns`: default include/exclude file patterns.
+- `schema_fields`: search weights and tokenizers for fields.
+- `search.default_limit`: default result count.
+- `search.show_description`: include frontmatter descriptions in output.
+- `search.filters`: hide path prefixes unless query keywords match.
+- `encoding`: default, fallback, binary, and file-specific encodings.
+- `auto_hook`: whether `install` should add Claude Code hooks.
 
-## Commands
+Run `tantivy2agents config-example` for the full template.
 
-| Command | Description |
-|---------|-------------|
-| `install` | Auto-detect project type and create config |
-| `index` | Build or update the search index |
-| `search "query"` | Search indexed documents |
-| `list` | List files that would be indexed (without creating index) |
-| `status` | Show index statistics |
-| `clear` | Clear the search index |
-| `config-example` | Show example configuration |
-| `encoding-info` | Analyze file encodings |
-| `skill-usage` | Output usage documentation |
-| `skill-setup` | Output setup documentation |
+## Markdown Metadata
 
-## Requirements
+Markdown frontmatter is indexed when present:
 
-- Python 3.10+
-- Dependencies: `PyYAML`, `tantivy`, `charset-normalizer`
+```markdown
+---
+title: Deployment Guide
+description: How to deploy the service
+tags: [deploy, production]
+servers: [web, 8080]
+---
 
-## AI Agent Integration
+# Deployment Guide
+```
 
-tantivy2agents is optimized for AI agents like Claude Code:
+Non-string `tags` and `servers` values are converted to strings before indexing.
 
-- **Structured output**: JSON format for programmatic consumption
-- **File preview**: `list` command explores project structure without side effects
-- **Clear errors**: Structured error messages with hints via `TANTIVY_JSON_OUTPUT=true`
-- **Type hints**: Full type annotations enable introspection
-- **Predictable interface**: Consistent command structure
+## Packaged Guides
 
-### Examples:
+The detailed usage and setup guides are shipped inside the package so the CLI can
+print them from any install:
 
 ```bash
-# Preview files before indexing
-tantivy2agents list --pattern "*.md"
-
-# Get structured results
-tantivy2agents search "API" --format json -o results.json
-
-# Machine-readable errors
-TANTIVY_JSON_OUTPUT=true tantivy2agents search "" 2>&1 | jq .
-
-# Parseable JSON for AI agents
-tantivy2agents search "database schema" --format json | jq '.results[] | .path'
+tantivy2agents skill-usage
+tantivy2agents skill-setup
 ```
+
+Source copies live in `src/tantivy2agents/skills/`.
+
+## Development
+
+```bash
+mise run install
+mise run test
+mise run pre-commit
+```
+
+The current full custom test runner is not green in this checkout. Known failing
+areas are tracked in `TODO.md`; keep new fixes covered by permanent tests.
+
+## Project Docs
+
+- `CHANGELOG.md`: released changes.
+- `TODO.md`: open work only.
+- `CLAUDE.md`: project-specific agent/development rules.
+- `src/tantivy2agents/skills/*/SKILL.md`: packaged CLI help documents.
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT. See `LICENSE`.

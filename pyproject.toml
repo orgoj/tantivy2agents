@@ -43,4 +43,4 @@ packages = ["src/tantivy2agents"]
 artifacts = ["src/tantivy2agents/skills/**/*"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/tantivy2agents", ".claude/**/*"]
+include = ["src/tantivy2agents", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]

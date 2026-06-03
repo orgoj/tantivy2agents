@@ -242,7 +242,7 @@ def encoding_info(
     Useful for troubleshooting encoding-related issues.
 
     Example:
-        tantovy2agents encoding-info
+        tantivy2agents encoding-info
     """
     agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
     agent.encoding_info_command()

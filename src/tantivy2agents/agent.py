@@ -1717,10 +1717,7 @@ MARKDOWN FRONTMATTER:
     def _find_skill_file(self, skill_name: str) -> str:
         """Find skill file path.
 
-        Tries multiple locations:
-        1. Package skills: src/tantivy2agents/skills/{skill_name}/SKILL.md
-        2. Development: .claude/skills/{skill_name}/SKILL.md
-        3. Relative path from agent.py
+        Uses packaged skills from src/tantivy2agents/skills/{skill_name}/SKILL.md.
 
         Args:
             skill_name: Name of the skill (e.g., "tantivy2agents-usage")
@@ -1731,7 +1728,6 @@ MARKDOWN FRONTMATTER:
         Raises:
             FileNotFoundError: If skill file cannot be found
         """
-        # Try package skills directory first (for installed version)
         this_file_dir = os.path.dirname(os.path.abspath(__file__))
         package_skill_path = os.path.join(
             this_file_dir, "skills", skill_name, "SKILL.md"
@@ -1739,27 +1735,10 @@ MARKDOWN FRONTMATTER:
         if os.path.exists(package_skill_path):
             return package_skill_path
 
-        # Try development location (.claude/skills/)
-        dev_skill_path = os.path.join(
-            self.project_root, ".claude", "skills", skill_name, "SKILL.md"
-        )
-        if os.path.exists(dev_skill_path):
-            return dev_skill_path
-
-        # Fallback: relative path from this file (going up to project root)
-        fallback_path = os.path.join(
-            this_file_dir, "..", "..", ".claude", "skills", skill_name, "SKILL.md"
-        )
-        fallback_path = os.path.normpath(fallback_path)
-        if os.path.exists(fallback_path):
-            return fallback_path
-
         raise FileNotFoundError(
             f"Skill file not found: {skill_name}\n"
-            f"Searched locations:\n"
-            f"  - {package_skill_path}\n"
-            f"  - {dev_skill_path}\n"
-            f"  - {fallback_path}"
+            f"Searched location:\n"
+            f"  - {package_skill_path}"
         )
 
     def skill_usage_command(self, output_file: Optional[str] = None) -> None:

@@ -40,18 +40,17 @@ tantivy2agents index --files      # Show files to be processed
 
 ```bash
 tantivy2agents search "query"              # Structured text (default)
-tantivy2agents search "query" -j           # JSON format
-tantivy2agents search "query" -c           # CSV format
-tantivy2agents search "query" -T           # Text format (explicit)
+tantivy2agents search "query" --format json
+tantivy2agents search "query" --format csv
+tantivy2agents search "query" --format text
 tantivy2agents search "query" --limit 5    # Limit results
 tantivy2agents search "query" -o out.json  # Save to file
 ```
 
 **Output formats:**
-- `-T` / `--text` - Structured text (default)
-- `-j` / `--json` - JSON with metadata
-- `-c` / `--csv` - CSV table
-- `-f json|csv|text` - Explicit format
+- `--format text` - Structured text (default)
+- `--format json` - JSON with metadata
+- `--format csv` - CSV table
 
 **Search features:**
 - BM25 ranking (higher score = better match)
@@ -75,9 +74,10 @@ tantivy2agents status
 
 ```bash
 tantivy2agents clear            # Delete index
-tantovy2agents config-example   # Show config template
-tantovy2agents hook-clear       # Mark index outdated (for hooks)
-tantovy2agents encoding-info    # Analyze file encodings
+tantivy2agents config-example   # Show config template
+tantivy2agents hook-clear       # Mark index outdated (for hooks)
+tantivy2agents encoding-info    # Analyze file encodings
+tantivy2agents list             # Preview files without indexing
 ```
 
 ## Output Format Examples
@@ -204,5 +204,5 @@ tantivy2agents config-example
 tantivy2agents skill-usage
 
 # View setup guide
-tantovy2agents skill-setup
+tantivy2agents skill-setup
 ```

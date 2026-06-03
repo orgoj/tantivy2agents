@@ -1,81 +1,34 @@
+# Tantivy2agents Agent Notes
 
-# Tantivy Agent Development Rules
+Keep this file short. Put user-facing docs in `README.md`, release history in
+`CHANGELOG.md`, and open work in `TODO.md`.
 
-## Typer CLI Framework
+## Commands
 
-This project uses Typer for CLI interfaces. Key patterns:
+- Install dev tools: `mise run install`
+- Test suite: `mise run test`
+- Lint/format hooks: `mise run pre-commit`
+- User install: `mise run install-user`
 
-- **Commands**: All top-level, flat structure (no subcommand groups)
-- **Type hints**: Every parameter has type annotation (int, str, bool, Optional)
-- **Enums**: Use `Enum` for fixed choices (e.g., `OutputFormat`)
-- **Docstrings**: Primary source of help text - Typer auto-generates --help
-- **Errors**: Raise `CLIError` subclasses, never use `parser.error()`
-- **Format flags**: Single `--format` flag with Enum, NOT multiple shortcuts
+## Project Rules
 
-When adding new commands:
-1. Use `@app.command()` decorator
-2. Add type hints for ALL parameters
-3. Write comprehensive docstring with Examples section
-4. Raise appropriate `CLIError` subclass for errors
-5. Add tests in `tests/test_typer_cli.py`
+- Use Typer for CLI commands in `src/tantivy2agents/cli.py`.
+- Keep the CLI flat; do not introduce command groups without a clear need.
+- Use `OutputFormat` or another Enum for fixed choices.
+- Prefer `CLIError` subclasses for user-facing failures. `agent.py` still has
+  legacy `print()`/`sys.exit()` paths; do not add more.
+- Add permanent tests in `tests/` for bug fixes and behavior changes.
+- Keep `README.md` and `CHANGELOG.md` current when behavior changes.
+- Bump both `pyproject.toml` and `src/tantivy2agents/__init__.py` for releases.
 
-## 🚨 TESTING & DEVELOPMENT PRINCIPLES
+## Tantivy API Gotchas
 
-### ABSOLUTELY NO MANUAL TESTING
-- ❌ **NEVER** run manual bash commands to test functionality
-- ❌ **NEVER** create temporary directories manually for testing
-- ❌ **NEVER** verify results by inspecting files manually
-- ❌ **NEVER** use `ls`, `cat`, `head` to check test outputs
+- Tantivy `Document` has no `.get()`. Use `doc[key]`.
+- Missing fields return `[]`, not `KeyError`.
+- Schema is not iterable. Use `parse_query(query, None)` to search all fields.
+- Handle missing fields gracefully for older indexes.
 
-### ✅ AUTOMATED TESTING ONLY
-- ✅ **ALWAYS** create automated Python tests in `tests/` directory
-- ✅ **ALWAYS** use `tmp/` directory for test data (in .gitignore)
-- ✅ **ALWAYS** run `python run_tests.py` to verify functionality
-- ✅ **ALWAYS** make tests repeatable and deterministic
+## Packaged Skill Docs
 
-### 🎯 SENIOR DEVELOPER STANDARDS
-- **Code once, test forever** - No manual verification after initial implementation
-- **Test-driven approach** - Write tests that cover all functionality
-- **Clean code** - No duplication, no manual cleanup, no temporary files
-- **Professional practices** - All functionality must be verifiable via automated tests
-
-## Tantivy Agent hooks
-Note: Hooks are now installed in .claude/settings.json, not here.
-
-## 📋 DOCUMENTATION UPDATES
-
-### README.md MUST BE CURRENT
-- After ANY code changes, README.md must be updated IMMEDIATELY
-- All new CLI options must be documented with examples
-- All new features must have clear usage instructions
-- Configuration examples must match actual defaults
-- All command examples must be tested and working
-
-### CLAUDE.md RULES ARE BINDING
-- These rules apply to ALL changes, no exceptions
-- Manual testing is strictly forbidden
-- Automated tests are mandatory for all functionality
-- Documentation must be kept current at all times
-
-## 🔄 WORKFLOW
-1. Implement feature
-2. Write/update automated tests
-3. Run `mise run test` - ALL tests must pass
-4. **Bump version** in pyproject.toml AND __init__.py
-5. Run `mise run pre-commit` - formatting and linting
-6. Update README.md with new functionality
-7. Commit changes
-8. NEVER manually verify or test anything
-
-## ⚠️ PROJECT-SPECIFIC RULES
-
-### Build System
-- **NO Makefile** - use `mise run [task]` for all operations
-- Available tasks: `mise run test`, `mise run pre-commit`, `mise run install`
-- **NEVER assume** build tools exist - check mise.toml first
-
-### Tantivy API Patterns
-- **Document access**: Use `doc[key]` NOT `doc.get(key)` - Tantivy Document has no `.get()` method
-- **Missing fields**: `doc[key]` returns `[]` for missing fields, NOT KeyError
-- **Schema iteration**: Schema is NOT iterable - use `parse_query(query, None)` to search all fields
-- **Backward compatibility**: Always handle missing fields gracefully (check if list is empty)
+The CLI prints packaged docs from `src/tantivy2agents/skills/*/SKILL.md`.
+Do not maintain duplicate copies under `.claude/skills`.

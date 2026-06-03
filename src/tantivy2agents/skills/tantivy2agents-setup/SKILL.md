@@ -38,7 +38,7 @@ pip install git+https://github.com/orgoj/tantivy2agents
 # Now use directly
 tantivy2agents install
 tantivy2agents index
-tantovy2agents search "your query"
+tantivy2agents search "your query"
 ```
 
 ### Development Setup

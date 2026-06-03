@@ -8,6 +8,8 @@ tmp/
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
+.ruff_cache/
 
 # Virtual environment
 .venv/
@@ -16,4 +18,11 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Local agent/session state
+.agents/
+.codex/
+.pi/
+.claude/diary/
+.claude/settings.local.json
 .claude/settings.mop-diary.json
