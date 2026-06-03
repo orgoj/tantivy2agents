@@ -19,27 +19,6 @@ test baseline are ambiguous.
 
 ## Phase 1: Test Suite Stabilization
 
-### 1.3 Add coverage for user-facing options
-
-**Problem:** TODO coverage gaps remain around important CLI flags and edge cases.
-
-**Goal:** Lock down command behavior before changing internals.
-
-**Files:**
-- `tests/test_basic.py`
-- `tests/test_typer_cli.py`
-
-**Acceptance criteria:**
-- `search --output` is tested for `text`, `json`, and `csv`.
-- `index --dirs` and `index --files` are tested.
-- Missing index behavior is tested for text and JSON error modes.
-- Empty/non-existent index edge cases are explicit.
-- `search --limit` min/max Typer validation remains covered.
-
-**Verification:**
-- `uv run python tests/test_basic.py`
-- `uv run python tests/test_typer_cli.py`
-
 ## Phase 2: Error Handling Cleanup
 
 ### 2.1 Replace user-facing error prints with structured exceptions

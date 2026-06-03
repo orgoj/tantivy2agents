@@ -2,6 +2,13 @@
 
 All notable project changes are tracked here.
 
+## [0.7.4] - 2026-06-03
+
+### Added
+- CLI regression coverage for `search --output` across text, JSON, and CSV.
+- CLI regression coverage for `index --dirs`, `index --files`, missing index
+  search behavior, and unusable empty index directories.
+
 ## [0.7.3] - 2026-06-03
 
 ### Changed

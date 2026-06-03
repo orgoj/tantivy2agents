@@ -273,6 +273,84 @@ def test_search_output_formats_are_concrete():
         assert "docs/guide.md" in result.stdout
 
 
+def test_search_output_option_writes_requested_formats():
+    """Test search --output writes text, JSON, and CSV to files."""
+    with runner.isolated_filesystem():
+        create_search_project()
+        result = runner.invoke(app, ["index"])
+        assert result.exit_code == 0
+
+        outputs = {
+            "text": Path("results.txt"),
+            "json": Path("results.json"),
+            "csv": Path("results.csv"),
+        }
+        for fmt, output_path in outputs.items():
+            result = runner.invoke(
+                app,
+                ["search", "testing", "--format", fmt, "--output", str(output_path)],
+            )
+            assert result.exit_code == 0
+            assert result.stdout == f"Results exported to {output_path}\n"
+            assert output_path.exists()
+
+        assert "### FILE: docs/guide.md" in outputs["text"].read_text()
+
+        json_data = json.loads(outputs["json"].read_text())
+        assert json_data["query"] == "testing"
+        assert json_data["results"][0]["path"] == "docs/guide.md"
+
+        csv_content = outputs["csv"].read_text()
+        assert "Score,Path,Title" in csv_content
+        assert "docs/guide.md" in csv_content
+
+
+def test_index_dirs_and_files_options_show_concrete_paths():
+    """Test index --dirs and --files show processed directories and files."""
+    with runner.isolated_filesystem():
+        create_search_project()
+        result = runner.invoke(app, ["index", "--dirs", "--files"])
+        assert result.exit_code == 0
+        assert "Directories to be processed:" in result.stdout
+        assert "  docs" in result.stdout
+        assert "  docs/guide.md" in result.stdout
+        assert "Successfully indexed 1 documents" in result.stdout
+
+
+def test_missing_index_behavior_in_text_and_json_env_modes():
+    """Test missing index output before structured error cleanup."""
+    with runner.isolated_filesystem():
+        create_search_project()
+
+        text_result = runner.invoke(app, ["search", "testing"])
+        assert text_result.exit_code == 0
+        assert (
+            text_result.stdout == "Index not found. Run 'tantivy2agents index' first\n"
+        )
+
+        env = os.environ.copy()
+        env["TANTIVY_JSON_OUTPUT"] = "true"
+        json_env_result = runner.invoke(app, ["search", "testing"], env=env)
+        assert json_env_result.exit_code == 0
+        assert (
+            json_env_result.stdout
+            == "Index not found. Run 'tantivy2agents index' first\n"
+        )
+
+
+def test_empty_index_directory_edge_case_is_explicit(caplog):
+    """Test current behavior when an index directory exists but is unusable."""
+    with runner.isolated_filesystem():
+        create_search_project()
+        os.makedirs(".tantivy-data/idx", exist_ok=True)
+
+        result = runner.invoke(app, ["search", "testing"])
+        assert result.exit_code == 0
+        assert result.stdout == ""
+        assert "Search error:" in caplog.text
+        assert "meta.json" in caplog.text
+
+
 # =============================================================================
 # Integration Tests
 # =============================================================================
