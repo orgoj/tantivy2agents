@@ -1,6 +1,10 @@
-allow python run_tests.py
+deny python * "use uv!!!"
+deny python3 * "use uv!!!"
+
+
 
 allow uv run tantivy2agents *
 allow uv run python -m pytest *
 allow uv run python run_tests.py *
 allow uv run python tests/** *
+allow uv run python tests/**

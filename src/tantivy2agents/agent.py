@@ -810,12 +810,12 @@ class TantivyAgent:
             "title": title_normalized,
             "description": description,
             "body": body_normalized,
-            "tags": " ".join(meta.get("tags", []))
+            "tags": " ".join(str(t) for t in meta.get("tags", []))
             if isinstance(meta.get("tags"), list)
-            else meta.get("tags", "") or "",
-            "servers": " ".join(meta.get("servers", []))
+            else str(meta.get("tags", "") or ""),
+            "servers": " ".join(str(s) for s in meta.get("servers", []))
             if isinstance(meta.get("servers"), list)
-            else meta.get("servers", "") or "",
+            else str(meta.get("servers", "") or ""),
             "path": rel_path,
         }
 

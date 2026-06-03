@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-02-08
 
 ### Added
 - `list` command to preview files that will be indexed without creating an index
@@ -21,11 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved error messages with emojis and actionable hints
 - Enhanced validation with structured errors (JSON when `TANTIVY_JSON_OUTPUT=true`)
 
+### Fixed
+- Robust frontmatter parsing: handle non-string values in `tags` and `servers` (fixes crash when integers are used in metadata)
+
 ### Technical
 - Added dependencies: `typer>=0.12.0`, `rich>=13.0.0`
 - Implemented `OutputFormat` Enum for type-safe format validation
 - Clean dependency injection pattern (no global state)
-- 67 automated tests (100% passing)
+- 68 automated tests (100% passing)
 - Comprehensive Typer CLI test coverage
 
 ### Removed
@@ -35,7 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Identified critical security vulnerabilities requiring immediate attention
 - See CODE_REVIEW.md for complete security analysis
 
-## [0.6.0] - 2026-01-26
+## [0.6.2] - 2026-01-26 (approx)
+*Initial Typer implementation and bugfixes*
+
 
 ## [1.0.0] - 2025-11-22
 

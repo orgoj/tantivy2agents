@@ -1160,6 +1160,31 @@ def test_excluded_directories():
             os.chdir(old_cwd)
 
 
+def test_parsing_with_non_string_tags():
+    """Test that parsing is robust to non-string tags/servers"""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        original_cwd = os.getcwd()
+        os.chdir(temp_dir)
+        try:
+            agent = TantivyAgent()
+
+            # Create test markdown file with non-string tags and servers
+            with open("test.md", "w") as f:
+                f.write(
+                    "---\ntags: [test, 123, markdown]\nservers: [web, 8080]\n---\n\n# Test\n"
+                )
+
+            # This should not raise TypeError
+            doc = agent._parse_markdown("test.md")
+
+            assert doc is not None
+            assert "test 123 markdown" == doc["tags"]
+            assert "web 8080" == doc["servers"]
+
+        finally:
+            os.chdir(original_cwd)
+
+
 def main():
     """Run all tests"""
     print("Running Tantivy Agent Tests...")
@@ -1191,6 +1216,7 @@ def main():
         ("Description Output", test_description_output),
         ("Description Hidden", test_description_hidden),
         ("Excluded Directories", test_excluded_directories),
+        ("Robust Parsing", test_parsing_with_non_string_tags),
     ]
 
     passed = 0
