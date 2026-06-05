@@ -624,14 +624,15 @@ class TantivyAgent:
 
             # Apply filters
             filtered_results = self._apply_filters(results_with_docs, query)
+            unique_results = self._deduplicate_results_by_path(filtered_results)
 
-            if not filtered_results:
+            if not unique_results:
                 print("No results found after filtering")
                 return
 
             # Export results in requested format (default: json)
             self._export_results(
-                filtered_results[:limit],
+                unique_results[:limit],
                 query,
                 format_output or "json",
                 output_file,
@@ -675,9 +676,24 @@ class TantivyAgent:
 
     def _candidate_limit(self, limit: int) -> int:
         """Return enough candidates for path filters without expensive paging."""
-        if self._get_search_filters():
-            return min(max(limit * 20, 100), 10000)
-        return limit * 4
+        return min(max(limit * 20, 100), 10000)
+
+    def _deduplicate_results_by_path(self, results):
+        """Keep only the best-ranked hit for each indexed file path."""
+        seen_paths = set()
+        unique_results = []
+
+        for score, doc_address, doc in results:
+            file_path = doc["path"][0] if doc["path"] else ""
+            if not file_path:
+                unique_results.append((score, doc_address, doc))
+                continue
+            if file_path in seen_paths:
+                continue
+            seen_paths.add(file_path)
+            unique_results.append((score, doc_address, doc))
+
+        return unique_results
 
     def _export_results(
         self, results, query, format_output, output_file, show_snippets: bool = False

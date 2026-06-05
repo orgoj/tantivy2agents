@@ -8,6 +8,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 import pytest
+import tantivy
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -487,6 +488,34 @@ def test_full_workflow_index_search():
         result = runner.invoke(app, ["search", "testing", "--limit", "1"])
         assert result.exit_code == 0
         assert "### FILE: guide.md" in result.stdout
+
+
+def test_search_returns_each_file_once_when_index_has_duplicate_paths():
+    """Search output should not repeat the same file path."""
+    with runner.isolated_filesystem():
+        create_search_project()
+
+        result = runner.invoke(app, ["index"])
+        assert result.exit_code == 0
+
+        index = tantivy.Index.open(".tantivy-data/idx")
+        writer = index.writer()
+        writer.add_document(
+            tantivy.Document(
+                title="Testing Guide",
+                description="",
+                body="testing duplicate content",
+                snippet="testing duplicate content",
+                tags="docs",
+                servers="",
+                path="docs/guide.md",
+            )
+        )
+        writer.commit()
+
+        result = runner.invoke(app, ["search", "testing", "--limit", "5"])
+        assert result.exit_code == 0
+        assert result.stdout.count("### FILE: docs/guide.md") == 1
 
 
 def test_clear_status_workflow():

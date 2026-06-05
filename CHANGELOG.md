@@ -4,6 +4,8 @@ All notable project changes are tracked here.
 
 ## Unreleased
 
+## [0.7.16] - 2026-06-05
+
 ### Added
 - `search --snippets` to include a short matching content preview while keeping
   default agent output compact.
@@ -17,6 +19,8 @@ All notable project changes are tracked here.
   outdated by hooks.
 - Filtered searches fetch more candidates so hidden high-ranking documents are
   less likely to mask visible results.
+- Search results are deduplicated by indexed file path before applying the
+  requested result limit, so each file is returned at most once.
 - Packaged usage/setup guides now emphasize committed repository files as the
   durable source of truth for agents.
 
