@@ -138,7 +138,7 @@ def collect_files_for_indexing(
         include_patterns = config["global_patterns"]["include"]
         exclude_patterns = config["global_patterns"]["exclude"]
 
-        full_dir_path = os.path.join(project_root, dir_path)
+        full_dir_path = os.path.normpath(os.path.join(project_root, dir_path))
         if not os.path.exists(full_dir_path):
             continue
 
@@ -191,6 +191,7 @@ def _maybe_add_file(
     encoding_config: dict[str, Any],
     show_files: bool,
 ) -> None:
+    file_path = os.path.normpath(file_path)
     rel_path = os.path.relpath(file_path, project_root)
 
     included = any(match_pattern(rel_path, pattern) for pattern in include_patterns)
