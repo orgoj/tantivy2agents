@@ -6,6 +6,14 @@ Removes common Czech suffixes to enable search across different word forms.
 """
 
 import re
+import unicodedata
+
+
+def fold_diacritics(text):
+    """Strip Czech diacritics so 'výpadků' and 'vypadku' normalize identically."""
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text) if not unicodedata.combining(c)
+    )
 
 
 def czech_stem(word):
@@ -25,7 +33,7 @@ def czech_stem(word):
         ukol -> ukol
         ukoly -> ukol
     """
-    word = word.lower().strip()
+    word = fold_diacritics(word.lower().strip())
 
     # Don't stem very short words
     if len(word) < 4:

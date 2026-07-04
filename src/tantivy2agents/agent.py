@@ -445,7 +445,11 @@ class TantivyAgent:
         body_normalized = normalize_czech_text(body)
 
         # Extract description from frontmatter
+        # Kept raw for display; queries are normalized, so a normalized copy is
+        # appended to the body field to make Czech description terms searchable.
         description = meta.get("description", "") or ""
+        if description:
+            body_normalized = normalize_czech_text(description) + "\n" + body_normalized
 
         return {
             "title": title_normalized,
