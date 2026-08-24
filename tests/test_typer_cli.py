@@ -1,9 +1,11 @@
 """Comprehensive tests for Typer CLI."""
 
+import contextlib
 import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typer.testing import CliRunner
 
@@ -17,6 +19,22 @@ from tantivy2agents.exceptions import ValidationError
 
 runner = CliRunner()
 SRC_PATH = Path(__file__).resolve().parents[1] / "src"
+
+
+@contextlib.contextmanager
+def isolated_filesystem():
+    """Run a test inside a fresh temporary working directory.
+
+    Replaces CliRunner.isolated_filesystem, which typer dropped in 0.27 when
+    it stopped depending on click.
+    """
+    original_cwd = os.getcwd()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        os.chdir(temp_dir)
+        try:
+            yield temp_dir
+        finally:
+            os.chdir(original_cwd)
 
 
 def run_module_command(args, env=None):
@@ -224,7 +242,7 @@ def test_format_enum_validation():
 
 def test_list_command_basic():
     """Test list command without options."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
         result = runner.invoke(app, ["list"])
         assert result.exit_code == 0
@@ -233,7 +251,7 @@ def test_list_command_basic():
 
 def test_list_with_pattern():
     """Test list command with pattern filter."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
         result = runner.invoke(app, ["list", "--pattern", "*.md"])
         assert result.exit_code == 0
@@ -242,7 +260,7 @@ def test_list_with_pattern():
 
 def test_list_with_size():
     """Test list command with size information."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
         result = runner.invoke(app, ["list", "--size"])
         assert result.exit_code == 0
@@ -251,7 +269,7 @@ def test_list_with_size():
 
 def test_list_with_encoding():
     """Test list command with encoding detection."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
         result = runner.invoke(app, ["list", "--encoding"])
         assert result.exit_code == 0
@@ -302,7 +320,7 @@ def test_empty_query_validation():
 
 def test_search_output_formats_are_concrete():
     """Test search --format output for text, JSON, and CSV."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
         result = runner.invoke(app, ["index"])
         assert result.exit_code == 0
@@ -325,7 +343,7 @@ def test_search_output_formats_are_concrete():
 
 def test_search_output_option_writes_requested_formats():
     """Test search --output writes text, JSON, and CSV to files."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
         result = runner.invoke(app, ["index"])
         assert result.exit_code == 0
@@ -357,7 +375,7 @@ def test_search_output_option_writes_requested_formats():
 
 def test_search_output_rejects_outside_project_without_opt_in():
     """Test --output refuses paths outside project root unless explicitly allowed."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
         result = runner.invoke(app, ["index"])
         assert result.exit_code == 0
@@ -400,7 +418,7 @@ def test_search_output_rejects_outside_project_without_opt_in():
 
 def test_index_dirs_and_files_options_show_concrete_paths():
     """Test index --dirs and --files show processed directories and files."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
         result = runner.invoke(app, ["index", "--dirs", "--files"])
         assert result.exit_code == 0
@@ -412,7 +430,7 @@ def test_index_dirs_and_files_options_show_concrete_paths():
 
 def test_missing_index_behavior_in_text_and_json_env_modes():
     """Test missing index is built automatically through the Typer app."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
 
         text_result = runner.invoke(app, ["search", "testing"])
@@ -428,7 +446,7 @@ def test_missing_index_behavior_in_text_and_json_env_modes():
 
 def test_empty_index_directory_edge_case_is_explicit():
     """Test an unusable index directory is rebuilt automatically."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
         os.makedirs(".tantivy-data/idx", exist_ok=True)
 
@@ -439,7 +457,7 @@ def test_empty_index_directory_edge_case_is_explicit():
 
 def test_missing_index_auto_build_from_main_entrypoint():
     """Test main entrypoint auto-builds a missing index."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
 
         result = run_module_command(
@@ -451,7 +469,7 @@ def test_missing_index_auto_build_from_main_entrypoint():
 
 def test_malformed_config_json_error_from_main_entrypoint():
     """Test TANTIVY_JSON_OUTPUT formats malformed config errors as JSON."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         os.makedirs(".git", exist_ok=True)
         Path(".tantivy2agents.json").write_text("{not valid json")
 
@@ -474,7 +492,7 @@ def test_malformed_config_json_error_from_main_entrypoint():
 
 def test_full_workflow_index_search():
     """Test complete workflow: install -> index -> search."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         os.makedirs(".git", exist_ok=True)
         with open("guide.md", "w", encoding="utf-8") as f:
             f.write("# Testing Guide\n\nThis document covers workflow testing.")
@@ -492,7 +510,7 @@ def test_full_workflow_index_search():
 
 def test_search_returns_each_file_once_when_index_has_duplicate_paths():
     """Search output should not repeat the same file path."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
 
         result = runner.invoke(app, ["index"])
@@ -520,7 +538,7 @@ def test_search_returns_each_file_once_when_index_has_duplicate_paths():
 
 def test_clear_status_workflow():
     """Test clear and status commands."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
         result = runner.invoke(app, ["clear"])
         assert result.exit_code == 0
@@ -575,12 +593,12 @@ def test_config_option_passes_path_to_agent(stub_agent, tmp_path):
 
 def test_verbose_quiet_options():
     """Test --verbose and --quiet options."""
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
         result = runner.invoke(app, ["index", "--verbose"])
         assert result.exit_code == 0
 
-    with runner.isolated_filesystem():
+    with isolated_filesystem():
         create_search_project()
         result = runner.invoke(app, ["index", "--quiet"])
         assert result.exit_code == 0

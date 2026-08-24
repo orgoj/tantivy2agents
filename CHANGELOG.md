@@ -4,6 +4,18 @@ All notable project changes are tracked here.
 
 ## Unreleased
 
+### Changed
+- `uv.lock` now matches what a fresh `uv tool install` resolves. The lock had
+  drifted (tantivy 0.25.1 vs 0.26.0 installed, plus rich, typer,
+  charset-normalizer and pygments), so the test suite was not exercising the
+  versions users actually get.
+- `mise run install` uses `uv sync --extra dev`, so it no longer leaves the
+  environment without pytest.
+
+### Fixed
+- CLI tests no longer rely on `CliRunner.isolated_filesystem`, which typer
+  removed in 0.27 along with its click dependency.
+
 ## [0.8.0] - 2026-08-24
 
 ### Added
