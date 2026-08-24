@@ -3,8 +3,11 @@ deny python3 * "use uv!!!"
 
 
 
-allow uv run tantivy2agents *
+allow uv run pytest *
 allow uv run python -m pytest *
 allow uv run python run_tests.py *
-allow uv run python tests/** *
 allow uv run python tests/**
+allow uv run python tests/** *
+allow uv run run_tests.py
+allow uv run scripts/bump_version.py *
+allow uv run tantivy2agents *
