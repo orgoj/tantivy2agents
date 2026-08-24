@@ -310,24 +310,36 @@ def test_lock_file_lives_outside_index_directory():
         assert os.path.basename(lock_path) == LOCK_FILENAME
 
 
+HOLD_LOCK_SOURCE = """\
+import sys, time
+sys.path.insert(0, {src_path!r})
+from tantivy2agents.locking import IndexLock
+lock = IndexLock({lock_path!r})
+with lock.acquire(timeout={timeout}):
+    print('acquired', flush=True)
+    time.sleep({hold})
+"""
+
+
+def _write_lock_script(temp_dir, lock_path, timeout=30, hold=0):
+    script_path = os.path.join(temp_dir, f"grab_lock_{hold}.py")
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write(
+            HOLD_LOCK_SOURCE.format(
+                src_path=SRC_PATH, lock_path=lock_path, timeout=timeout, hold=hold
+            )
+        )
+    return script_path
+
+
 def test_index_lock_is_exclusive_across_processes():
-    """A second process must wait for the exclusive lock."""
+    """A second process must wait for the lock."""
     with tempfile.TemporaryDirectory() as temp_dir:
         lock_path = os.path.join(temp_dir, LOCK_FILENAME)
-        script = (
-            "import sys, time\n"
-            f"sys.path.insert(0, {SRC_PATH!r})\n"
-            "from tantivy2agents.locking import IndexLock\n"
-            f"lock = IndexLock({lock_path!r})\n"
-            "with lock.exclusive(timeout=30):\n"
-            "    print('acquired', flush=True)\n"
-        )
-        script_path = os.path.join(temp_dir, "grab_lock.py")
-        with open(script_path, "w", encoding="utf-8") as f:
-            f.write(script)
+        script_path = _write_lock_script(temp_dir, lock_path)
 
         lock = IndexLock(lock_path)
-        with lock.exclusive(timeout=5):
+        with lock.acquire(timeout=5):
             proc = subprocess.Popen(
                 [sys.executable, script_path],
                 stdout=subprocess.PIPE,
@@ -342,28 +354,60 @@ def test_index_lock_is_exclusive_across_processes():
         assert "acquired" in stdout
 
 
-def test_index_lock_shared_readers_do_not_block_each_other():
-    """Two shared holders may run at the same time."""
+def test_index_lock_is_released_when_holder_is_killed():
+    """The OS must drop the lock of a process that dies without releasing it.
+
+    This is the property the whole design rests on: a rebuild killed halfway
+    through must not leave a lock that blocks every later search.
+    """
     with tempfile.TemporaryDirectory() as temp_dir:
         lock_path = os.path.join(temp_dir, LOCK_FILENAME)
-        first = IndexLock(lock_path)
-        second = IndexLock(lock_path)
+        script_path = _write_lock_script(temp_dir, lock_path, hold=60)
 
-        with first.shared(timeout=5):
-            with second.shared(timeout=5):
-                assert first.mode == "shared"
-                assert second.mode == "shared"
+        proc = subprocess.Popen(
+            [sys.executable, script_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            # Wait until the child really holds the lock.
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                if proc.stdout.readline().strip() == "acquired":
+                    break
+            else:
+                raise AssertionError("Child never acquired the lock")
+
+            waiter = IndexLock(lock_path)
+            timed_out = False
+            try:
+                with waiter.acquire(timeout=0.2):
+                    pass
+            except IndexLockTimeoutError:
+                timed_out = True
+            assert timed_out, "Lock should be held by the child"
+
+            proc.kill()
+            proc.wait(timeout=30)
+
+            # No cleanup ran in the child, yet the lock must be free.
+            with waiter.acquire(timeout=10):
+                pass
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=30)
 
 
 def test_index_lock_is_reentrant():
     """Nested acquisition inside one process must not deadlock."""
     with tempfile.TemporaryDirectory() as temp_dir:
         lock = IndexLock(os.path.join(temp_dir, LOCK_FILENAME))
-        with lock.exclusive(timeout=5):
-            with lock.exclusive(timeout=5):
-                with lock.shared(timeout=5):
-                    assert lock.mode == "exclusive"
-        assert lock.mode is None
+        with lock.acquire(timeout=5):
+            with lock.acquire(timeout=5):
+                assert lock.held
+        assert not lock.held
 
 
 def test_index_lock_times_out():
@@ -377,7 +421,7 @@ def test_index_lock_times_out():
         acquired = threading.Event()
 
         def hold():
-            with holder.exclusive(timeout=5):
+            with holder.acquire(timeout=5):
                 acquired.set()
                 released.wait(10)
 
@@ -385,13 +429,16 @@ def test_index_lock_times_out():
         thread.start()
         try:
             acquired.wait(10)
-            timed_out = False
+            error = None
             try:
-                with waiter.exclusive(timeout=0.2):
+                with waiter.acquire(timeout=0.2):
                     pass
-            except IndexLockTimeoutError:
-                timed_out = True
-            assert timed_out, "Expected the waiter to time out"
+            except IndexLockTimeoutError as e:
+                error = e
+            assert error is not None, "Expected the waiter to time out"
+            # The error should name who is holding the lock.
+            assert "held_by" in error.context
+            assert f"pid={os.getpid()}" in error.context["held_by"]
         finally:
             released.set()
             thread.join(10)
@@ -441,8 +488,8 @@ def main():
             test_index_lock_is_exclusive_across_processes,
         ),
         (
-            "Shared Readers Do Not Block",
-            test_index_lock_shared_readers_do_not_block_each_other,
+            "Lock Released When Holder Killed",
+            test_index_lock_is_released_when_holder_is_killed,
         ),
         ("Reentrant Lock", test_index_lock_is_reentrant),
         ("Lock Timeout", test_index_lock_times_out),

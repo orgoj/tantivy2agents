@@ -37,6 +37,12 @@ from .files import (
     match_pattern,
 )
 from .locking import LOCK_FILENAME, IndexLock
+from .paths import (
+    find_project_root,
+    is_inside,
+    to_index_path,
+    to_index_pattern,
+)
 from .output import (
     export_csv,
     export_json,
@@ -51,6 +57,12 @@ logger = logging.getLogger(__name__)
 # Scratch directories used while swapping a freshly built index into place
 BUILD_DIR_PREFIX = ".build-"
 RETIRED_DIR_PREFIX = ".retired-"
+
+# Windows releases file handles asynchronously, and virus scanners or the
+# search indexer can hold a directory open for a moment after the last handle
+# is closed, so directory swaps get a few attempts before giving up.
+DIR_RETRY_ATTEMPTS = 10
+DIR_RETRY_DELAY = 0.05
 
 # Optional dependency for advanced encoding detection
 try:
@@ -116,12 +128,7 @@ class TantivyAgent:
 
     def _find_project_root(self):
         """Find project root by looking for .git directory"""
-        current = os.getcwd()
-        while current != "/":
-            if os.path.exists(os.path.join(current, ".git")):
-                return current
-            current = os.path.dirname(current)
-        return os.getcwd()
+        return find_project_root(os.getcwd())
 
     def _load_config(self):
         """Load configuration from JSON file with defaults"""
@@ -168,11 +175,42 @@ class TantivyAgent:
 
         project_root = os.path.realpath(self.project_root)
         real_path = os.path.realpath(abs_path)
-        if os.path.commonpath([project_root, real_path]) != project_root:
+        # None means the paths share no root at all (different Windows drives)
+        if is_inside(project_root, real_path) is not True:
             raise FileSystemError(
                 message="Index directory must stay inside the project root",
                 path=abs_path,
             )
+
+    @staticmethod
+    def _rename_with_retry(src: str, dst: str) -> None:
+        """Rename a directory, retrying while Windows still holds it open."""
+        for attempt in range(DIR_RETRY_ATTEMPTS):
+            try:
+                os.rename(src, dst)
+                return
+            except PermissionError:
+                if attempt == DIR_RETRY_ATTEMPTS - 1:
+                    raise
+                time.sleep(DIR_RETRY_DELAY)
+
+    @staticmethod
+    def _rmtree_with_retry(path: str) -> None:
+        """Remove a directory tree, retrying while Windows still holds it open."""
+        for attempt in range(DIR_RETRY_ATTEMPTS):
+            try:
+                shutil.rmtree(path, ignore_errors=False)
+                return
+            except FileNotFoundError:
+                return
+            except PermissionError:
+                if attempt == DIR_RETRY_ATTEMPTS - 1:
+                    logger.warning("Could not remove %s; leaving it behind", path)
+                    return
+                time.sleep(DIR_RETRY_DELAY)
+            except OSError as e:
+                logger.warning("Could not remove %s: %s", path, e)
+                return
 
     def _publish_index(self, build_dir: str, index_dir: str) -> None:
         """Swap a freshly built index into place with directory renames.
@@ -188,17 +226,17 @@ class TantivyAgent:
                 os.path.dirname(index_dir),
                 f"{RETIRED_DIR_PREFIX}{uuid.uuid4().hex}",
             )
-            os.rename(index_dir, retired_dir)
+            self._rename_with_retry(index_dir, retired_dir)
 
         try:
-            os.rename(build_dir, index_dir)
+            self._rename_with_retry(build_dir, index_dir)
         except OSError:
             if retired_dir is not None:
-                os.rename(retired_dir, index_dir)
+                self._rename_with_retry(retired_dir, index_dir)
             raise
 
         if retired_dir is not None:
-            shutil.rmtree(retired_dir, ignore_errors=True)
+            self._rmtree_with_retry(retired_dir)
 
     def _cleanup_stale_index_dirs(self, data_dir: str) -> None:
         """Drop scratch directories left behind by a crashed rebuild."""
@@ -256,7 +294,7 @@ class TantivyAgent:
         real_output_path = os.path.realpath(output_path)
         if (
             not allow_outside_project
-            and os.path.commonpath([project_root, real_output_path]) != project_root
+            and is_inside(project_root, real_output_path) is not True
         ):
             raise ValidationError(
                 message="Output path is outside the project root",
@@ -366,7 +404,7 @@ class TantivyAgent:
         encoding_config = self.config.get("encoding", {})
         file_specific = encoding_config.get("file_specific_encodings", {})
         filename = os.path.basename(file_path)
-        rel_path = os.path.relpath(file_path, self.project_root)
+        rel_path = to_index_path(os.path.relpath(file_path, self.project_root))
 
         # Check file-specific patterns (try both relative path and filename)
         # Sort patterns by length (longer/more specific patterns first)
@@ -374,6 +412,7 @@ class TantivyAgent:
             file_specific.items(), key=lambda x: len(x[0]), reverse=True
         )
         for pattern, encoding in sorted_patterns:
+            pattern = to_index_pattern(pattern)
             if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(
                 filename.lower(), pattern.lower()
             ):
@@ -490,8 +529,9 @@ class TantivyAgent:
                 # Invalid YAML frontmatter, skip it
                 pass
 
-        # Auto-generate metadata for server files
-        rel_path = os.path.relpath(file_path, self.project_root)
+        # Auto-generate metadata for server files. The path is normalized to
+        # forward slashes so patterns and filters behave the same on Windows.
+        rel_path = to_index_path(os.path.relpath(file_path, self.project_root))
         if not meta and rel_path.startswith("servers/"):
             server_name = os.path.splitext(os.path.basename(file_path))[0]
             servers = [server_name]
@@ -567,7 +607,7 @@ class TantivyAgent:
             return True
 
         try:
-            with open(index_info_path, "r") as f:
+            with open(index_info_path, "r", encoding="utf-8") as f:
                 index_info = json.load(f)
 
             # Check if any indexed file was modified
@@ -593,7 +633,7 @@ class TantivyAgent:
         The whole rebuild runs under the exclusive index lock so that parallel
         index/search processes wait instead of deleting each other's files.
         """
-        with self.index_lock.exclusive():
+        with self.index_lock.acquire():
             self._index_locked(force, show_dirs, show_files)
 
     def _index_locked(self, force: bool, show_dirs: bool, show_files: bool) -> None:
@@ -691,55 +731,70 @@ class TantivyAgent:
 
         self._ensure_search_index(data_dir, index_dir)
 
+        limit = limit or self.config["search"]["default_limit"]
+
         try:
-            # Hold the read lock so a concurrent rebuild waits until this
-            # search has finished with the index files it opened.
-            with self.index_lock.shared():
-                # Load index
-                index = tantivy.Index.open(index_dir)
-                searcher = index.searcher()
-
-                # Normalize query for Czech search
-                normalized_query = normalize_czech_text(query)
-
-                # Parse query - use None to search all fields in index schema (backward compatibility)
-                # This ensures search works even when config has more fields than old index
-                query_parser = index.parse_query(normalized_query, None)
-
-                # Search
-                limit = limit or self.config["search"]["default_limit"]
-                search_limit = self._candidate_limit(limit)
-                result = searcher.search(query_parser, search_limit)
-
-                if not result.hits:
-                    print("No results found")
-                    return
-
-                # Process results
-                results_with_docs = []
-                for score, doc_address in result.hits:
-                    doc = searcher.doc(doc_address)
-                    results_with_docs.append((score, doc_address, doc))
-
-                # Apply filters
-                filtered_results = self._apply_filters(results_with_docs, query)
-                unique_results = self._deduplicate_results_by_path(filtered_results)
-
-                if not unique_results:
-                    print("No results found after filtering")
-                    return
-
-                # Export results in requested format (default: json)
-                self._export_results(
-                    unique_results[:limit],
-                    query,
-                    format_output or "json",
-                    output_file,
-                    show_snippets=show_snippets,
+            # Hold the lock so a concurrent rebuild waits until this search has
+            # finished with the index files it opened. Every tantivy handle is
+            # confined to the helper below and dies before the lock is
+            # released: Windows refuses to rename or delete a directory that
+            # any process still holds open.
+            with self.index_lock.acquire():
+                had_hits, unique_results = self._collect_search_results(
+                    index_dir, query, limit
                 )
-
         except (OSError, ValueError, RuntimeError) as e:
             raise IndexNotFoundError(index_dir=index_dir) from e
+
+        if not had_hits:
+            print("No results found")
+            return
+
+        if not unique_results:
+            print("No results found after filtering")
+            return
+
+        # Export results in requested format (default: json)
+        self._export_results(
+            unique_results[:limit],
+            query,
+            format_output or "json",
+            output_file,
+            show_snippets=show_snippets,
+        )
+
+    def _collect_search_results(self, index_dir: str, query: str, limit: int):
+        """Run the query and return (had_hits, filtered results).
+
+        All tantivy objects stay local to this call so they are released as
+        soon as it returns, while the caller still holds the index lock.
+        """
+        index = tantivy.Index.open(index_dir)
+        searcher = index.searcher()
+
+        # Normalize query for Czech search
+        normalized_query = normalize_czech_text(query)
+
+        # Parse query - use None to search all fields in index schema (backward compatibility)
+        # This ensures search works even when config has more fields than old index
+        query_parser = index.parse_query(normalized_query, None)
+
+        # Search
+        search_limit = self._candidate_limit(limit)
+        result = searcher.search(query_parser, search_limit)
+
+        if not result.hits:
+            return False, []
+
+        # Process results
+        results_with_docs = []
+        for score, doc_address in result.hits:
+            doc = searcher.doc(doc_address)
+            results_with_docs.append((score, doc_address, doc))
+
+        # Apply filters
+        filtered_results = self._apply_filters(results_with_docs, query)
+        return True, self._deduplicate_results_by_path(filtered_results)
 
     def _ensure_search_index(self, data_dir: str, index_dir: str) -> None:
         """Build or refresh the index before search when needed.
@@ -749,7 +804,7 @@ class TantivyAgent:
         the index it published.
         """
         if self._search_index_needs_rebuild(data_dir, index_dir):
-            with self.index_lock.exclusive():
+            with self.index_lock.acquire():
                 if self._search_index_needs_rebuild(data_dir, index_dir):
                     with contextlib.redirect_stdout(io.StringIO()):
                         self.index_command(force=True)
@@ -885,9 +940,13 @@ class TantivyAgent:
             if not filter_config.get("hidden", True):
                 continue  # Filter not active
 
-            # Check if file matches any filter path
+            # Check if file matches any filter path. Indexed paths always use
+            # forward slashes, so the configured prefix is normalized to match
+            # even when it was written Windows-style as "incidents\".
             paths = filter_config.get("paths", [])
-            matches_filter = any(file_path.startswith(path) for path in paths)
+            matches_filter = any(
+                file_path.startswith(to_index_pattern(path)) for path in paths
+            )
 
             if matches_filter:
                 # Check if query contains any show keyword (pre-lowercased)
@@ -930,7 +989,7 @@ class TantivyAgent:
 
         data_dir = os.path.join(self.project_root, self.config["index_dir"])
 
-        with self.index_lock.exclusive():
+        with self.index_lock.acquire():
             if self._clear_index_contents(data_dir):
                 print(f"Cleared index directory: {data_dir}")
             else:
@@ -1080,7 +1139,7 @@ class TantivyAgent:
         if not os.path.exists(data_dir):
             return
 
-        with self.index_lock.exclusive():
+        with self.index_lock.acquire():
             index_info_path = os.path.join(data_dir, "index_info.json")
             if os.path.exists(index_info_path):
                 # Mark index as outdated instead of deleting
@@ -1244,7 +1303,7 @@ class TantivyAgent:
         index_info_path = os.path.join(data_dir, "index_info.json")
         try:
             if os.path.exists(index_info_path):
-                with open(index_info_path, "r") as f:
+                with open(index_info_path, "r", encoding="utf-8") as f:
                     index_info = json.load(f)
 
                 doc_count = index_info.get("count", 0)

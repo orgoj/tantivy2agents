@@ -57,9 +57,25 @@ class CLIError(Exception):
         is_json = os.getenv("TANTIVY_JSON_OUTPUT", "").lower() == "true"
 
         if is_json:
-            print(self.format_json(), file=sys.stderr)
+            _write_stderr(self.format_json())
         else:
-            print(self.format_human(), file=sys.stderr)
+            _write_stderr(self.format_human())
+
+
+def _write_stderr(text: str) -> None:
+    """Write to stderr without ever failing on the emoji in the message.
+
+    When output is redirected to a pipe or file, Python encodes with the
+    locale encoding, which on a non-UTF-8 Windows console cannot represent
+    the emoji. Losing the error message to a UnicodeEncodeError would hide
+    the actual problem, so unrepresentable characters are replaced instead.
+    """
+    try:
+        print(text, file=sys.stderr)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stderr, "encoding", None) or "ascii"
+        safe = text.encode(encoding, "replace").decode(encoding, "replace")
+        print(safe, file=sys.stderr)
 
 
 class ValidationError(CLIError):

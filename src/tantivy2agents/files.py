@@ -7,6 +7,8 @@ import glob
 import os
 from typing import Any
 
+from .paths import to_index_path, to_index_pattern
+
 MIN_TEXT_CHAR_RATIO = 0.7
 PRINTABLE_ASCII_RANGE = (32, 126)
 WHITESPACE_CHARS = (9, 10, 13)
@@ -14,8 +16,10 @@ WHITESPACE_CHARS = (9, 10, 13)
 
 def match_pattern(path: str, pattern: str) -> bool:
     """Match a path against a glob pattern."""
-    normalized_path = path.replace(os.sep, "/")
-    normalized_pattern = pattern.replace(os.sep, "/")
+    normalized_path = to_index_path(path)
+    # Patterns come from configuration, where a person may have typed either
+    # separator, so both are accepted on the pattern side.
+    normalized_pattern = to_index_pattern(pattern)
 
     if fnmatch.fnmatch(normalized_path, normalized_pattern):
         return True
@@ -128,7 +132,7 @@ def collect_files_for_indexing(
     for dir_config in expanded_dirs:
         if dir_config.get("exclude", False):
             dir_path = dir_config["path"]
-            excluded_dir_names.add(os.path.basename(dir_path.rstrip("/")))
+            excluded_dir_names.add(os.path.basename(dir_path.rstrip("/\\")))
 
     for dir_config in expanded_dirs:
         if dir_config.get("exclude", False):

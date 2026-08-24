@@ -4,6 +4,42 @@ All notable project changes are tracked here.
 
 ## Unreleased
 
+## [0.8.0] - 2026-08-24
+
+### Added
+- Declared platform support: Linux (x86_64, aarch64), Windows (x86_64) and
+  macOS (x86_64, arm64). Windows on ARM is not supported because `tantivy`
+  publishes no `win_arm64` wheel. The Windows and macOS paths are implemented
+  but have not been exercised on a real machine yet.
+- `paths.py` with the path helpers that have to behave the same on POSIX and
+  Windows, plus `tests/test_portability.py`, which reproduces Windows path
+  rules from POSIX using `ntpath`.
+
+### Fixed
+- Every command hung forever on Windows. `_find_project_root` walked up until
+  it reached `"/"`, which never happens on Windows because `dirname("C:\\")`
+  is `"C:\\"`.
+- Search filters compared the configured path prefix verbatim, so a prefix
+  written Windows-style (`incidents\`) silently matched nothing and revealed
+  paths it was meant to hide.
+- An index or `--output` path on another Windows drive raised a bare
+  `ValueError` from `commonpath` instead of the intended structured error.
+- Error messages crashed with `UnicodeEncodeError` instead of being shown when
+  output was redirected to a pipe on a non-UTF-8 console, because of the emoji
+  in the human-readable format.
+- Index directory swaps retry while the operating system still holds a handle,
+  and searches release every index handle before dropping the lock. Windows
+  refuses to rename or delete a directory that any process still has open.
+
+### Changed
+- The index lock is now taken through `fcntl.flock` on POSIX and
+  `msvcrt.locking` on Windows. Both are released by the operating system when
+  the process exits, so a killed rebuild can never leave a lock behind.
+- The lock is exclusive only; Windows has no shared-mode equivalent. Searches
+  therefore serialize against each other, which costs about 1 ms per search on
+  a 2000-document index.
+- Paths stored in the index always use forward slashes, on every platform.
+
 ## [0.7.17] - 2026-08-24
 
 ### Fixed

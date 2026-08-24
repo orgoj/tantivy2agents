@@ -130,18 +130,42 @@ snippets are opt-in per query with `--snippets`.
 Output files must stay inside the project root unless
 `--allow-outside-output` is provided.
 
+## Platform Support
+
+| Platform | Status |
+| --- | --- |
+| Linux x86_64, aarch64 | Supported and tested |
+| Windows x86_64 | Supported, not yet verified on a real machine |
+| macOS x86_64, arm64 | Supported, not yet verified on a real machine |
+| Windows on ARM | Not supported — `tantivy` ships no `win_arm64` wheel |
+
+Windows-specific behavior (path rules, drive boundaries, console encoding) is
+covered by `tests/test_portability.py`, which reproduces the Windows rules from
+POSIX using `ntpath`. That is not the same as running the tool on Windows, so
+treat the Windows and macOS rows as "should work, unverified" until someone
+confirms them.
+
+On Windows on ARM the install itself fails unless a Rust toolchain is present
+to build `tantivy` from source.
+
 ## Parallel Processes
 
 Several agents can run `index` and `search` against the same project at the
 same time. Access is coordinated through a lock file (`index.lock`) that sits
 next to the index directory, not inside it:
 
-- `index` and search-triggered rebuilds take the lock exclusively; other
-  processes wait instead of deleting an index that is still in use.
-- `search` takes the lock in shared mode, so parallel searches never block each
-  other but a rebuild waits for them to finish.
+- Every `index`, `clear`, search-triggered rebuild and `search` holds the lock,
+  so processes wait instead of deleting an index that is still in use.
 - A new index is built in a scratch directory and swapped in with an atomic
   rename, so a failed rebuild leaves the last usable index in place.
+- The lock is taken through `fcntl.flock` on POSIX and `msvcrt.locking` on
+  Windows. Both are released by the operating system when the process exits,
+  so a crashed or killed run never leaves a lock behind.
+
+The lock is exclusive, because Windows has no shared-mode equivalent and one
+behavior on every platform is worth more than parallel reads. Searches
+therefore queue behind each other, which costs about 1 ms per search on a
+2000-document index.
 
 Set `TANTIVY2AGENTS_LOCK_TIMEOUT` (seconds, default `120`) to change how long a
 process waits before giving up with an error.

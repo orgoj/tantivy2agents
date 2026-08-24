@@ -24,6 +24,10 @@ Keep this file short. Put user-facing docs in `README.md`, release history in
 - Any index read or write must go through the index lock (`locking.py`).
   Never delete or rebuild `idx/` in place; build beside it and publish with a
   rename.
+- Windows and macOS are supported but untested on real machines. Route path
+  walking, separators and containment checks through `paths.py`, never compare
+  against `"/"` or call `commonpath` directly, and cover Windows rules in
+  `tests/test_portability.py` using `ntpath`.
 
 ## Tantivy API Gotchas
 
