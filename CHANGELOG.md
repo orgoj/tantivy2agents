@@ -4,6 +4,33 @@ All notable project changes are tracked here.
 
 ## Unreleased
 
+## [0.7.17] - 2026-08-24
+
+### Fixed
+- Parallel `index`/`search` processes no longer corrupt each other's index.
+  Concurrent searches over a stale or unopenable index each forced a rebuild
+  that deleted the whole `idx/` directory, so processes removed segments the
+  others were reading or writing and failed with
+  `Failed to open file for write: <hash>.idx` or
+  `FileDoesNotExist(.../<hash>.fieldnorm)`.
+- A failed rebuild keeps the last usable index instead of leaving no index at
+  all. The new index is built in a scratch directory and only swapped in once
+  it is complete.
+
+### Added
+- Cross-process index lock (`index.lock` next to the index directory, never
+  inside it): rebuilds take it exclusively, searches take it shared, so
+  parallel processes wait instead of racing. The wait can be tuned with
+  `TANTIVY2AGENTS_LOCK_TIMEOUT` (seconds, default 120) and times out with a
+  structured error.
+- Scratch directories left behind by a crashed rebuild are cleaned up on the
+  next indexing run.
+
+### Changed
+- `clear` now empties the index directory but keeps the lock file, so a
+  concurrent process cannot lose the lock it is holding.
+- `index_info.json` is written atomically.
+
 ## [0.7.16] - 2026-06-05
 
 ### Added

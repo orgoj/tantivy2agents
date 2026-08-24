@@ -11,6 +11,7 @@ import logging
 import os
 import shutil
 import time
+import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -35,6 +36,7 @@ from .files import (
     is_binary_file,
     match_pattern,
 )
+from .locking import LOCK_FILENAME, IndexLock
 from .output import (
     export_csv,
     export_json,
@@ -45,6 +47,10 @@ from .output import (
 
 # Module logger
 logger = logging.getLogger(__name__)
+
+# Scratch directories used while swapping a freshly built index into place
+BUILD_DIR_PREFIX = ".build-"
+RETIRED_DIR_PREFIX = ".retired-"
 
 # Optional dependency for advanced encoding detection
 try:
@@ -83,6 +89,16 @@ class TantivyAgent:
             self.project_root, ".tantivy2agents.json"
         )
         self.config = self._load_config()
+        self._lock: Optional[IndexLock] = None
+
+    @property
+    def index_lock(self) -> IndexLock:
+        """Cross-process lock guarding this project's index directory."""
+        if self._lock is None:
+            data_dir = os.path.join(self.project_root, self.config["index_dir"])
+            self._ensure_safe_index_path(data_dir)
+            self._lock = IndexLock(os.path.join(data_dir, LOCK_FILENAME))
+        return self._lock
 
     def _setup_logging(self) -> None:
         """Configure logging based on verbosity settings."""
@@ -158,18 +174,76 @@ class TantivyAgent:
                 path=abs_path,
             )
 
-    def _remove_index_path(self, path: str) -> bool:
-        """Remove an index directory after safety checks."""
-        if not os.path.exists(path):
-            return False
-        self._ensure_safe_index_path(path)
-        if not os.path.isdir(path):
-            raise FileSystemError(
-                message="Index path is not a directory",
-                path=os.path.abspath(path),
+    def _publish_index(self, build_dir: str, index_dir: str) -> None:
+        """Swap a freshly built index into place with directory renames.
+
+        Renames are atomic, so a reader either sees the whole old index or the
+        whole new one - never a half-deleted directory.
+        """
+        self._ensure_safe_index_path(index_dir)
+
+        retired_dir = None
+        if os.path.exists(index_dir):
+            retired_dir = os.path.join(
+                os.path.dirname(index_dir),
+                f"{RETIRED_DIR_PREFIX}{uuid.uuid4().hex}",
             )
-        shutil.rmtree(path)
-        return True
+            os.rename(index_dir, retired_dir)
+
+        try:
+            os.rename(build_dir, index_dir)
+        except OSError:
+            if retired_dir is not None:
+                os.rename(retired_dir, index_dir)
+            raise
+
+        if retired_dir is not None:
+            shutil.rmtree(retired_dir, ignore_errors=True)
+
+    def _cleanup_stale_index_dirs(self, data_dir: str) -> None:
+        """Drop scratch directories left behind by a crashed rebuild."""
+        try:
+            entries = os.listdir(data_dir)
+        except OSError:
+            return
+
+        for entry in entries:
+            if not entry.startswith((BUILD_DIR_PREFIX, RETIRED_DIR_PREFIX)):
+                continue
+            path = os.path.join(data_dir, entry)
+            if os.path.isdir(path) and not os.path.islink(path):
+                shutil.rmtree(path, ignore_errors=True)
+
+    def _write_index_info(self, data_dir: str, index_info: dict) -> None:
+        """Write index metadata atomically so readers never see a partial file."""
+        target = os.path.join(data_dir, "index_info.json")
+        tmp_path = f"{target}.tmp-{uuid.uuid4().hex}"
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(index_info, f, indent=2)
+            os.replace(tmp_path, target)
+        except OSError:
+            with contextlib.suppress(OSError):
+                os.remove(tmp_path)
+            raise
+
+    def _clear_index_contents(self, data_dir: str) -> bool:
+        """Remove index data while keeping the lock file others may hold."""
+        if not os.path.exists(data_dir):
+            return False
+        self._ensure_safe_index_path(data_dir)
+
+        removed = False
+        for entry in os.listdir(data_dir):
+            if entry == LOCK_FILENAME:
+                continue
+            path = os.path.join(data_dir, entry)
+            if os.path.isdir(path) and not os.path.islink(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+            removed = True
+        return removed
 
     def _prepare_output_file(
         self, output_file: Optional[str], allow_outside_project: bool = False
@@ -514,12 +588,22 @@ class TantivyAgent:
     def index_command(
         self, force: bool = False, show_dirs: bool = False, show_files: bool = False
     ) -> None:
-        """Create or update document index"""
+        """Create or update document index.
+
+        The whole rebuild runs under the exclusive index lock so that parallel
+        index/search processes wait instead of deleting each other's files.
+        """
+        with self.index_lock.exclusive():
+            self._index_locked(force, show_dirs, show_files)
+
+    def _index_locked(self, force: bool, show_dirs: bool, show_files: bool) -> None:
+        """Rebuild the index. Must be called while holding the write lock."""
         print("Starting document indexing...")
 
         # Ensure data directory exists
         data_dir = self._ensure_data_dir()
         index_dir = os.path.join(data_dir, "idx")
+        self._cleanup_stale_index_dirs(data_dir)
 
         # Check if rebuild is needed
         if not force and not self._should_rebuild_index(data_dir):
@@ -545,32 +629,40 @@ class TantivyAgent:
             print("No valid documents found")
             return
 
-        # Remove old index and create new directory
-        self._remove_index_path(index_dir)
-        os.makedirs(index_dir, exist_ok=True)
-
-        # Create schema and index
-        schema = self._create_schema()
-        index = tantivy.Index(schema, path=index_dir)
-
-        # Index documents
-        print(f"Indexing {len(docs)} documents...")
-        writer = index.writer()
-
+        # Build the new index beside the live one so a failed rebuild leaves
+        # the last usable index untouched.
+        build_dir = os.path.join(data_dir, f"{BUILD_DIR_PREFIX}{uuid.uuid4().hex}")
         try:
-            for doc_data in docs:
-                writer.add_document(tantivy.Document(**doc_data))
+            os.makedirs(build_dir)
 
-            writer.commit()
-        except Exception as e:
-            logger.error("Failed to write index: %s", e)
-            raise RuntimeError(f"Index write failed: {e}") from e
+            # Create schema and index
+            schema = self._create_schema()
+            index = tantivy.Index(schema, path=build_dir)
+
+            # Index documents
+            print(f"Indexing {len(docs)} documents...")
+            writer = index.writer()
+
+            try:
+                for doc_data in docs:
+                    writer.add_document(tantivy.Document(**doc_data))
+
+                writer.commit()
+            except Exception as e:
+                logger.error("Failed to write index: %s", e)
+                raise RuntimeError(f"Index write failed: {e}") from e
+
+            # Drop writer/index handles before swapping directories
+            del writer
+            del index
+
+            self._publish_index(build_dir, index_dir)
+        finally:
+            shutil.rmtree(build_dir, ignore_errors=True)
 
         # Save index info
         index_info = {"timestamp": time.time(), "files": files, "count": len(docs)}
-
-        with open(os.path.join(data_dir, "index_info.json"), "w") as f:
-            json.dump(index_info, f, indent=2)
+        self._write_index_info(data_dir, index_info)
 
         print(f"Successfully indexed {len(docs)} documents")
         print(f"Index saved to: {index_dir}")
@@ -600,64 +692,78 @@ class TantivyAgent:
         self._ensure_search_index(data_dir, index_dir)
 
         try:
-            # Load index
-            index = tantivy.Index.open(index_dir)
-            searcher = index.searcher()
+            # Hold the read lock so a concurrent rebuild waits until this
+            # search has finished with the index files it opened.
+            with self.index_lock.shared():
+                # Load index
+                index = tantivy.Index.open(index_dir)
+                searcher = index.searcher()
 
-            # Normalize query for Czech search
-            normalized_query = normalize_czech_text(query)
+                # Normalize query for Czech search
+                normalized_query = normalize_czech_text(query)
 
-            # Parse query - use None to search all fields in index schema (backward compatibility)
-            # This ensures search works even when config has more fields than old index
-            query_parser = index.parse_query(normalized_query, None)
+                # Parse query - use None to search all fields in index schema (backward compatibility)
+                # This ensures search works even when config has more fields than old index
+                query_parser = index.parse_query(normalized_query, None)
 
-            # Search
-            limit = limit or self.config["search"]["default_limit"]
-            search_limit = self._candidate_limit(limit)
-            result = searcher.search(query_parser, search_limit)
+                # Search
+                limit = limit or self.config["search"]["default_limit"]
+                search_limit = self._candidate_limit(limit)
+                result = searcher.search(query_parser, search_limit)
 
-            if not result.hits:
-                print("No results found")
-                return
+                if not result.hits:
+                    print("No results found")
+                    return
 
-            # Process results
-            results_with_docs = []
-            for score, doc_address in result.hits:
-                doc = searcher.doc(doc_address)
-                results_with_docs.append((score, doc_address, doc))
+                # Process results
+                results_with_docs = []
+                for score, doc_address in result.hits:
+                    doc = searcher.doc(doc_address)
+                    results_with_docs.append((score, doc_address, doc))
 
-            # Apply filters
-            filtered_results = self._apply_filters(results_with_docs, query)
-            unique_results = self._deduplicate_results_by_path(filtered_results)
+                # Apply filters
+                filtered_results = self._apply_filters(results_with_docs, query)
+                unique_results = self._deduplicate_results_by_path(filtered_results)
 
-            if not unique_results:
-                print("No results found after filtering")
-                return
+                if not unique_results:
+                    print("No results found after filtering")
+                    return
 
-            # Export results in requested format (default: json)
-            self._export_results(
-                unique_results[:limit],
-                query,
-                format_output or "json",
-                output_file,
-                show_snippets=show_snippets,
-            )
+                # Export results in requested format (default: json)
+                self._export_results(
+                    unique_results[:limit],
+                    query,
+                    format_output or "json",
+                    output_file,
+                    show_snippets=show_snippets,
+                )
 
         except (OSError, ValueError, RuntimeError) as e:
             raise IndexNotFoundError(index_dir=index_dir) from e
 
     def _ensure_search_index(self, data_dir: str, index_dir: str) -> None:
-        """Build or refresh the index before search when needed."""
-        if (
-            not os.path.exists(index_dir)
-            or self._is_index_outdated(data_dir)
-            or not self._index_can_open(index_dir)
-        ):
-            with contextlib.redirect_stdout(io.StringIO()):
-                self.index_command(force=True)
+        """Build or refresh the index before search when needed.
+
+        The staleness check is repeated under the write lock: when several
+        searches race, only the first one rebuilds and the others simply use
+        the index it published.
+        """
+        if self._search_index_needs_rebuild(data_dir, index_dir):
+            with self.index_lock.exclusive():
+                if self._search_index_needs_rebuild(data_dir, index_dir):
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        self.index_command(force=True)
 
         if not os.path.exists(index_dir):
             raise IndexNotFoundError(index_dir=index_dir)
+
+    def _search_index_needs_rebuild(self, data_dir: str, index_dir: str) -> bool:
+        """Return True when the index is missing, stale or unopenable."""
+        return (
+            not os.path.exists(index_dir)
+            or self._is_index_outdated(data_dir)
+            or not self._index_can_open(index_dir)
+        )
 
     def _index_can_open(self, index_dir: str) -> bool:
         """Return True when an existing index directory can be opened."""
@@ -824,10 +930,11 @@ class TantivyAgent:
 
         data_dir = os.path.join(self.project_root, self.config["index_dir"])
 
-        if self._remove_index_path(data_dir):
-            print(f"Cleared index directory: {data_dir}")
-        else:
-            print("No index directory found")
+        with self.index_lock.exclusive():
+            if self._clear_index_contents(data_dir):
+                print(f"Cleared index directory: {data_dir}")
+            else:
+                print("No index directory found")
 
     def install_command(
         self, target_dir: Optional[str] = None, create_config: bool = True
@@ -970,19 +1077,20 @@ class TantivyAgent:
         data_dir = os.path.join(self.project_root, self.config["index_dir"])
         self._ensure_safe_index_path(data_dir)
 
-        if os.path.exists(data_dir):
+        if not os.path.exists(data_dir):
+            return
+
+        with self.index_lock.exclusive():
             index_info_path = os.path.join(data_dir, "index_info.json")
             if os.path.exists(index_info_path):
                 # Mark index as outdated instead of deleting
-                with open(index_info_path, "r+") as f:
+                with open(index_info_path, "r", encoding="utf-8") as f:
                     index_info = json.load(f)
-                    index_info["outdated"] = True
-                    f.seek(0)
-                    json.dump(index_info, f, indent=2)
-                    f.truncate()
+                index_info["outdated"] = True
+                self._write_index_info(data_dir, index_info)
             else:
-                # No index info, remove directory
-                self._remove_index_path(data_dir)
+                # No index info, drop the index data
+                self._clear_index_contents(data_dir)
 
     def encoding_info_command(self) -> None:
         """Show encoding information for files that would be indexed"""

@@ -102,7 +102,7 @@ tantivy2agents status
 | `index` | Build or update the search index |
 | `search "query"` | Search indexed documents |
 | `status` | Show index statistics |
-| `clear` | Delete index data |
+| `clear` | Delete index data (keeps the lock file) |
 | `encoding-info` | Analyze encodings for indexed files |
 | `config-example` | Print a full config template |
 | `hook-clear` | Internal hook support; mark index stale after edits |
@@ -129,6 +129,22 @@ snippets are opt-in per query with `--snippets`.
 
 Output files must stay inside the project root unless
 `--allow-outside-output` is provided.
+
+## Parallel Processes
+
+Several agents can run `index` and `search` against the same project at the
+same time. Access is coordinated through a lock file (`index.lock`) that sits
+next to the index directory, not inside it:
+
+- `index` and search-triggered rebuilds take the lock exclusively; other
+  processes wait instead of deleting an index that is still in use.
+- `search` takes the lock in shared mode, so parallel searches never block each
+  other but a rebuild waits for them to finish.
+- A new index is built in a scratch directory and swapped in with an atomic
+  rename, so a failed rebuild leaves the last usable index in place.
+
+Set `TANTIVY2AGENTS_LOCK_TIMEOUT` (seconds, default `120`) to change how long a
+process waits before giving up with an error.
 
 ## Configuration
 
