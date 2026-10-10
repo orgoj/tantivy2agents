@@ -7,7 +7,8 @@ Keep this file short. Put user-facing docs in `README.md`, release history in
 
 - Install dev tools: `mise run install`
 - Test suite: `mise run test`
-- Lint/format hooks: `mise run pre-commit`
+- Lint/format hooks: `mise run pre-commit` (`git add` new files first;
+  untracked files are skipped)
 - User install: `mise run install-user`
 
 ## Project Rules

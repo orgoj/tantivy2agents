@@ -26,7 +26,7 @@ mise run install
 """
 
 [tasks.test]
-run = "uv run python run_tests.py"
+run = "uv run pytest -q tests"
 
 [tasks.pre-commit]
 description = "Run pre-commit on all files"

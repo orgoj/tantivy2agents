@@ -24,7 +24,7 @@ Use this workflow for planned project work driven by `TODO.md`.
 4. Update `TODO.md`: delete completed items; keep or tighten incomplete items.
 5. Update `CHANGELOG.md`: record user-visible fixes, test stabilization, docs, and process changes.
 6. Run the verification commands listed by the item. If sandbox cache paths fail, retry with cache under `/tmp`.
-7. Run broader checks for the completed batch, normally `run_tests.py`, relevant pytest suites, docs audits, and `mise run pre-commit`.
+7. Run broader checks for the completed batch, normally `mise run test`, docs audits, and `mise run pre-commit`.
 8. Review the diff yourself before finalizing: verify scope, docs, tests, TODO cleanup, changelog, and no unrelated churn.
 9. Bump version for a completed release-worthy batch in both `pyproject.toml` and `src/tantivy2agents/__init__.py`.
 10. Commit with a focused message after tests/checks/review/version update pass.
@@ -34,8 +34,7 @@ Use this workflow for planned project work driven by `TODO.md`.
 Prefer these commands when relevant:
 
 ```bash
-UV_CACHE_DIR=/tmp/uv-cache uv run python run_tests.py
-UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests/test_typer_cli.py -q
+UV_CACHE_DIR=/tmp/uv-cache uv run --extra dev pytest tests -q
 MISE_CACHE_DIR=/tmp/mise-cache UV_CACHE_DIR=/tmp/uv-cache mise run pre-commit
 ```
 
