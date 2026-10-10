@@ -36,6 +36,7 @@ def main():
         ("tests/test_encoding.py", "Encoding Detection"),
         ("tests/test_concurrency.py", "Parallel Index and Search"),
         ("tests/test_portability.py", "Cross-Platform Paths"),
+        ("tests/test_read_gateway.py", "Read Gateway and Usage Log"),
     ]
 
     all_passed = True

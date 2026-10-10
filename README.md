@@ -101,8 +101,11 @@ tantivy2agents status
 | `list` | Preview files that would be indexed |
 | `index` | Build or update the search index |
 | `search "query"` | Search indexed documents |
+| `outline REF\|PATH` | Headings of an indexed document with slugs and line ranges |
+| `read REF\|PATH` | Print an indexed document, `--section SLUG` or `--lines A-B` |
+| `usage` | Report which search results agents read via `read`/`outline` |
 | `status` | Show index statistics |
-| `clear` | Delete index data (keeps the lock file) |
+| `clear` | Delete index data (keeps the lock file and usage log) |
 | `encoding-info` | Analyze encodings for indexed files |
 | `config-example` | Print a full config template |
 | `hook-clear` | Internal hook support; mark index stale after edits |
@@ -129,6 +132,38 @@ snippets are opt-in per query with `--snippets`.
 
 Output files must stay inside the project root unless
 `--allow-outside-output` is provided.
+
+## Reading Documents and Usage Tracking
+
+Each search gets a short id, and every result a ref `<search_id>:<rank>`
+(`REF: a3f2c1:1` in text output, `search_id`/`rank`/`ref` in JSON, a trailing
+`Ref` column in CSV). Agents pass a ref or a path to the read commands:
+
+```bash
+tantivy2agents outline a3f2c1:1                  # headings, slugs, line ranges
+tantivy2agents read a3f2c1:1 --section setup     # one section incl. subsections
+tantivy2agents read guides/deploy.md --lines 10-40 --numbers
+tantivy2agents usage --since 7d --format json    # search -> read report
+```
+
+- Only files the current config would index can be read; paths are relative to
+  the project root or absolute inside it.
+- Sections: ATX headings outside fenced code, GitHub-style slugs that keep
+  Unicode letters (`## Přehled změn` → `přehled-změn`), duplicates get `-1`,
+  `-2`. `--section` also accepts the heading text or the slug without
+  diacritics. `frontmatter` and `preamble` (text before the first heading) are
+  pseudo-sections. Line numbers count the raw file, frontmatter included.
+- Searches (zero-result ones too) and reads are appended to
+  `<index_dir>/usage.jsonl` (rotated to `usage.1.jsonl` at
+  `usage.max_bytes`, default 5 MB). Refs resolve from these two files. The log
+  has its own `usage.lock`, so reads never wait for an index rebuild.
+- Turn it off with `"usage": {"enabled": false}` or `TANTIVY2AGENTS_USAGE=0`;
+  search then prints no refs. `TANTIVY2AGENTS_AGENT`, if set, is recorded with
+  each event.
+- The report only sees reads through `read`/`outline`; reads with native file
+  tools are invisible to it.
+- `usage --recent-read PATH [--within 30m]` exits 0 when PATH was read via
+  `read` inside the window and its content is unchanged since, 1 otherwise.
 
 ## Platform Support
 
@@ -196,6 +231,8 @@ Useful fields:
 - `search.filters`: hide path prefixes unless query keywords match.
 - `encoding`: default, fallback, binary, and file-specific encodings.
 - `auto_hook`: whether `install` should add Claude Code hooks.
+- `usage.enabled`, `usage.max_bytes`: usage log on/off (default on) and its
+  rotation size (default `5000000`).
 
 Run `tantivy2agents config-example` for the full template.
 

@@ -18,15 +18,16 @@ def export_results(
     output_file: str | None,
     config: dict[str, Any],
     show_snippets: bool = False,
+    search_id: str | None = None,
 ) -> None:
     """Export results in specified format."""
     fmt = format_output.lower()
     if fmt == "json":
-        export_json(results, query, output_file, config, show_snippets=show_snippets)
+        exporter = export_json
     elif fmt == "csv":
-        export_csv(results, query, output_file, config, show_snippets=show_snippets)
+        exporter = export_csv
     elif fmt in {"text", "txt"}:
-        export_text(results, query, output_file, config, show_snippets=show_snippets)
+        exporter = export_text
     else:
         raise ValidationError(
             message="Unsupported output format",
@@ -34,6 +35,19 @@ def export_results(
             expected="json, csv, text",
             got=format_output,
         )
+    exporter(
+        results,
+        query,
+        output_file,
+        config,
+        show_snippets=show_snippets,
+        search_id=search_id,
+    )
+
+
+def result_ref(search_id: str | None, rank: int) -> str | None:
+    """Ref an agent passes to ``read``/``outline``; None without a usage log."""
+    return f"{search_id}:{rank}" if search_id else None
 
 
 def export_json(
@@ -42,10 +56,12 @@ def export_json(
     output_file: str | None,
     config: dict[str, Any],
     show_snippets: bool = False,
+    search_id: str | None = None,
 ) -> None:
     """Export results as JSON."""
     export_data = {
         "query": query,
+        "search_id": search_id,
         "timestamp": datetime.now().isoformat(),
         "total_results": len(results),
         "results": [],
@@ -53,11 +69,16 @@ def export_json(
 
     show_description = config.get("search", {}).get("show_description", False)
 
-    for score, doc_address, doc in results:
+    for rank, (score, doc_address, doc) in enumerate(results, start=1):
         fields = extract_document_fields(doc, include_description=show_description)
         if show_snippets:
             fields["snippet"] = extract_snippet(doc, query)
-        result_item = {"score": round(score, 4), **fields}
+        result_item = {
+            "rank": rank,
+            "ref": result_ref(search_id, rank),
+            "score": round(score, 4),
+            **fields,
+        }
         export_data["results"].append(result_item)
 
     if output_file:
@@ -74,6 +95,7 @@ def export_csv(
     output_file: str | None,
     config: dict[str, Any],
     show_snippets: bool = False,
+    search_id: str | None = None,
 ) -> None:
     """Export results as CSV."""
     if output_file:
@@ -92,9 +114,10 @@ def export_csv(
         header.extend(["Tags", "Servers"])
         if show_snippets:
             header.append("Snippet")
+        header.append("Ref")
         writer.writerow(header)
 
-        for score, doc_address, doc in results:
+        for rank, (score, doc_address, doc) in enumerate(results, start=1):
             fields = extract_document_fields(doc, include_description=show_description)
             row = [f"{score:.4f}", fields["path"], fields["title"]]
             if show_description:
@@ -102,6 +125,7 @@ def export_csv(
             row.extend([fields["tags"], fields["servers"]])
             if show_snippets:
                 row.append(extract_snippet(doc, query))
+            row.append(result_ref(search_id, rank) or "")
             writer.writerow(row)
 
         if output_file:
@@ -120,6 +144,7 @@ def export_text(
     output_file: str | None,
     config: dict[str, Any],
     show_snippets: bool = False,
+    search_id: str | None = None,
 ) -> None:
     """Export results as structured text for easy parsing."""
     if output_file:
@@ -130,10 +155,13 @@ def export_text(
     show_description = config.get("search", {}).get("show_description", False)
 
     try:
-        for score, doc_address, doc in results:
+        for rank, (score, doc_address, doc) in enumerate(results, start=1):
             fields = extract_document_fields(doc, include_description=show_description)
 
             file_handle.write(f"### FILE: {fields['path']}\n")
+            ref = result_ref(search_id, rank)
+            if ref:
+                file_handle.write(f"REF: {ref}\n")
             if fields["title"]:
                 file_handle.write(f"TITLE: {fields['title']}\n")
             if show_description and fields.get("description"):
@@ -151,6 +179,12 @@ def export_text(
 
         if output_file:
             print(f"Results exported to {output_file}")
+        else:
+            target = "REF" if search_id else "PATH"
+            file_handle.write(
+                f"Read: tantivy2agents outline {target} | "
+                f"tantivy2agents read {target} [--section SLUG]\n"
+            )
 
     finally:
         if output_file:

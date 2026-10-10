@@ -428,7 +428,13 @@ def config_example_text() -> str:
   },
 
   // Automatically install Claude Code hooks
-  "auto_hook": true
+  "auto_hook": true,
+
+  // Usage log (.tantivy-data/usage.jsonl) behind search refs and 'usage'
+  "usage": {
+    "enabled": true,              // Or set TANTIVY2AGENTS_USAGE=0
+    "max_bytes": 5000000          // Rotate to usage.1.jsonl above this size
+  }
 }
 
 QUICK START:

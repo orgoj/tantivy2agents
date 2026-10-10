@@ -2,7 +2,30 @@
 
 All notable project changes are tracked here.
 
-## Unreleased
+## [0.9.0] - 2026-10-10
+
+### Added
+- `outline` and `read` commands: agents read indexed documents whole, by
+  Markdown section (`--section`, GitHub-style Unicode slugs) or by line range
+  (`--lines`, `--numbers`). Only files the current config would index are
+  readable.
+- Search refs: every search gets a 6-hex id, every result a ref
+  `<search_id>:<rank>` that `outline`/`read` accept. Text output gets a `REF:`
+  line and a closing `Read:` hint, JSON gets `search_id`, `rank` and `ref`,
+  CSV a trailing `Ref` column.
+- Usage log `<index_dir>/usage.jsonl` of searches (including zero-result ones)
+  and reads, rotated at `usage.max_bytes` (default 5 MB), guarded by its own
+  `usage.lock`. Disable with `"usage": {"enabled": false}` or
+  `TANTIVY2AGENTS_USAGE=0`.
+- `usage` command: read-through rate per rank and query, zero-result queries,
+  results not read via tantivy2agents, outlines without a follow-up read,
+  most-read sections, never-returned documents (`--format json`,
+  `schema_version: 1`). `usage --recent-read PATH --within 30m` checks for a
+  recent read of an unchanged file via the exit status.
+
+### Fixed
+- `clear` and `hook-clear` no longer delete the usage log together with the
+  index.
 
 ### Changed
 - `uv.lock` now matches what a fresh `uv tool install` resolves. The lock had

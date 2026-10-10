@@ -37,6 +37,7 @@ from .files import (
     match_pattern,
 )
 from .locking import LOCK_FILENAME, IndexLock
+from .usage import USAGE_FILENAMES, UsageLog, new_search_id
 from .paths import (
     find_project_root,
     is_inside,
@@ -273,7 +274,8 @@ class TantivyAgent:
 
         removed = False
         for entry in os.listdir(data_dir):
-            if entry == LOCK_FILENAME:
+            # The usage history outlives the index it was recorded against.
+            if entry == LOCK_FILENAME or entry in USAGE_FILENAMES:
                 continue
             path = os.path.join(data_dir, entry)
             if os.path.isdir(path) and not os.path.islink(path):
@@ -746,6 +748,9 @@ class TantivyAgent:
         except (OSError, ValueError, RuntimeError) as e:
             raise IndexNotFoundError(index_dir=index_dir) from e
 
+        shown = unique_results[:limit]
+        search_id = self._log_search(query, limit, shown)
+
         if not had_hits:
             print("No results found")
             return
@@ -756,12 +761,38 @@ class TantivyAgent:
 
         # Export results in requested format (default: json)
         self._export_results(
-            unique_results[:limit],
+            shown,
             query,
             format_output or "json",
             output_file,
             show_snippets=show_snippets,
+            search_id=search_id,
         )
+
+    def _log_search(self, query: str, limit: int, shown) -> Optional[str]:
+        """Record the search in the usage log; return its id, or None."""
+        usage = UsageLog(
+            os.path.join(self.project_root, self.config["index_dir"]), self.config
+        )
+        if not usage.enabled:
+            return None
+        search_id = new_search_id()
+        results = [
+            {
+                "rank": rank,
+                "path": doc["path"][0] if doc["path"] else "",
+                "score": round(score, 4),
+            }
+            for rank, (score, _address, doc) in enumerate(shown, start=1)
+        ]
+        record = {
+            "type": "search",
+            "id": search_id,
+            "query": query,
+            "limit": limit,
+            "results": results,
+        }
+        return search_id if usage.append(record) else None
 
     def _collect_search_results(self, index_dir: str, query: str, limit: int):
         """Run the query and return (had_hits, filtered results).
@@ -861,7 +892,13 @@ class TantivyAgent:
         return unique_results
 
     def _export_results(
-        self, results, query, format_output, output_file, show_snippets: bool = False
+        self,
+        results,
+        query,
+        format_output,
+        output_file,
+        show_snippets: bool = False,
+        search_id: Optional[str] = None,
     ):
         """Export results in specified format"""
         export_results(
@@ -871,6 +908,7 @@ class TantivyAgent:
             output_file,
             self.config,
             show_snippets=show_snippets,
+            search_id=search_id,
         )
 
     def _export_json(self, results, query, output_file):

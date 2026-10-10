@@ -9,6 +9,7 @@ from rich.console import Console
 
 from .agent import TantivyAgent
 from .exceptions import CLIError, ValidationError
+from .gateway import ReadGateway
 from . import __version__
 
 app = typer.Typer(
@@ -46,6 +47,13 @@ class OutputFormat(str, Enum):
 
     json = "json"
     csv = "csv"
+    text = "text"
+
+
+class OutlineFormat(str, Enum):
+    """Output format options for outline and usage."""
+
+    json = "json"
     text = "text"
 
 
@@ -143,6 +151,103 @@ def search(
         allow_outside_output,
         show_snippets=snippets,
     )
+
+
+@app.command()
+def outline(
+    target: str = typer.Argument(..., help="Search ref (abc123:2) or file path"),
+    format: OutlineFormat = typer.Option(
+        OutlineFormat.text, "--format", "-f", help="Output format"
+    ),
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """Show the headings of an indexed document with slugs and line ranges.
+
+    TARGET is a ref from search output or a path relative to the project
+    root (absolute paths inside the project work too).
+
+    Examples:
+        tantivy2agents outline a3f2c1:1
+        tantivy2agents outline guides/deploy.md --format json
+    """
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    ReadGateway(agent).outline_command(target, format.value)
+
+
+@app.command()
+def read(
+    target: str = typer.Argument(..., help="Search ref (abc123:2) or file path"),
+    section: Optional[str] = typer.Option(
+        None, "--section", "-s", help="Section slug or heading text"
+    ),
+    lines: Optional[str] = typer.Option(
+        None, "--lines", "-n", help="Line range: A-B, A- or A (1-based)"
+    ),
+    numbers: bool = typer.Option(
+        False, "--numbers", help="Prefix each line with its line number"
+    ),
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """Print an indexed document, one section of it, or a line range.
+
+    Every read is recorded in the usage log so search quality can be measured.
+
+    Examples:
+        tantivy2agents read a3f2c1:1
+        tantivy2agents read a3f2c1:1 --section setup
+        tantivy2agents read guides/deploy.md --lines 10-40 --numbers
+    """
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    ReadGateway(agent).read_command(target, section, lines, numbers)
+
+
+@app.command()
+def usage(
+    since: str = typer.Option("30d", "--since", help="Report period: 12h, 30d"),
+    format: OutlineFormat = typer.Option(
+        OutlineFormat.text, "--format", "-f", help="Output format"
+    ),
+    recent_read: Optional[str] = typer.Option(
+        None,
+        "--recent-read",
+        help="Exit 0 if PATH was read via tantivy2agents within --within "
+        "and is unchanged since; exit 1 otherwise",
+    ),
+    within: str = typer.Option(
+        "30m", "--within", help="Window for --recent-read: 30m, 2h, 1d"
+    ),
+    config: Optional[str] = typer.Option(
+        None, "--config", "-c", help="Path to config file"
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug output"),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", help="Suppress informational output"
+    ),
+) -> None:
+    """Report which search results agents read via tantivy2agents.
+
+    Examples:
+        tantivy2agents usage
+        tantivy2agents usage --since 7d --format json
+        tantivy2agents usage --recent-read guides/deploy.md --within 1h
+    """
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    gateway = ReadGateway(agent)
+    if recent_read:
+        raise typer.Exit(gateway.recent_read_command(recent_read, within))
+    gateway.usage_command(since, format.value)
 
 
 @app.command()

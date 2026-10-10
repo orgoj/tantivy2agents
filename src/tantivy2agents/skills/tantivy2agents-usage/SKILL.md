@@ -24,9 +24,36 @@ tantivy2agents search "your query"
 # Search with a short content snippet when deciding what to read
 tantivy2agents search "nginx restart" --snippets
 
+# Read a result by its ref: headings first, then only the section you need
+tantivy2agents outline a3f2c1:1
+tantivy2agents read a3f2c1:1 --section setup
+
 # View index status
 tantivy2agents status
 ```
+
+## Reading Results
+
+Every search result has a ref `<search_id>:<rank>` (`REF:` line in text
+output). Read indexed documents through these commands rather than a file tool,
+so the project can see which guides are found and actually used:
+
+```bash
+tantivy2agents outline REF|PATH                   # headings: lines, slug
+tantivy2agents read REF|PATH                      # whole document
+tantivy2agents read REF|PATH --section SLUG       # one section + subsections
+tantivy2agents read REF|PATH --lines 10-40        # line range (A-B, A-, A)
+tantivy2agents read REF|PATH --lines 10-40 --numbers   # with line numbers
+```
+
+- Prefer the ref from the search you just ran; a path relative to the project
+  root works too.
+- For long documents run `outline` first and read only the relevant section.
+- `--section` takes the slug from `outline` (`{#setup-1}`), the heading text,
+  or the slug without diacritics (`prehled-zmen`).
+- Line numbers match the file on disk (frontmatter included), so they can be
+  used for edits.
+- Only files the project indexes are readable.
 
 ## Commands Reference
 
@@ -86,6 +113,7 @@ tantivy2agents status
 ### Other Commands
 
 ```bash
+tantivy2agents usage --since 7d # Which results were read via read/outline
 tantivy2agents clear            # Delete index
 tantivy2agents config-example   # Show config template
 tantivy2agents hook-clear       # Internal hook support; mark index outdated
@@ -101,10 +129,12 @@ tantivy2agents skill-setup      # Print packaged setup/configuration guide
 
 ```
 ### FILE: guides/server-setup.md
+REF: a3f2c1:1
 TITLE: Complete Server Setup Guide
 SCORE: 0.8920
 TAGS: docker, networking
 ---
+Read: tantivy2agents outline REF | tantivy2agents read REF [--section SLUG]
 ```
 
 Default text output is intentionally compact for agent workflows. Set
@@ -116,11 +146,13 @@ a short content preview before opening a file.
 
 ```
 ### FILE: guides/server-setup.md
+REF: a3f2c1:1
 TITLE: Complete Server Setup Guide
 SCORE: 0.8920
 TAGS: docker, networking
 SNIPPET: Restart nginx only after checking the health endpoint.
 ---
+Read: tantivy2agents outline REF | tantivy2agents read REF [--section SLUG]
 ```
 
 ### JSON Output
@@ -128,10 +160,13 @@ SNIPPET: Restart nginx only after checking the health endpoint.
 ```json
 {
   "query": "server configuration",
+  "search_id": "a3f2c1",
   "timestamp": "2025-01-06T19:30:45",
   "total_results": 3,
   "results": [
     {
+      "rank": 1,
+      "ref": "a3f2c1:1",
       "score": 0.892,
       "path": "guides/server-setup.md",
       "title": "Complete Server Setup Guide",
@@ -148,9 +183,9 @@ need frontmatter descriptions.
 ### CSV Output
 
 ```csv
-Score,Path,Title,Tags,Servers
-0.8920,guides/server-setup.md,Complete Server Setup Guide,docker networking,
-0.7560,servers/production.md,Production Server Configuration,infrastructure,prod
+Score,Path,Title,Tags,Servers,Ref
+0.8920,guides/server-setup.md,Complete Server Setup Guide,docker networking,,a3f2c1:1
+0.7560,servers/production.md,Production Server Configuration,infrastructure,prod,a3f2c1:2
 ```
 
 ## YAML Frontmatter
@@ -189,7 +224,7 @@ servers: [s8, s9]
 - Search for the guide/runbook before editing code or changing a server.
 - Search for past incidents when the task mentions an outage, failure, rollback,
   emergency, or project-specific incident keyword.
-- Open and read the returned files before acting.
+- Read the returned files before acting, via `outline`/`read` with the ref.
 
 **After file changes:**
 - Index updates automatically if configured with hooks

@@ -7,7 +7,7 @@ import glob
 import os
 from typing import Any
 
-from .paths import to_index_path, to_index_pattern
+from .paths import is_inside, to_index_path, to_index_pattern
 
 MIN_TEXT_CHAR_RATIO = 0.7
 PRINTABLE_ASCII_RANGE = (32, 126)
@@ -184,6 +184,47 @@ def collect_files_for_indexing(
             print(f"  {rel_dir}")
 
     return unique_files, unique_dirs
+
+
+def is_indexed_path(config: dict[str, Any], project_root: str, file_path: str) -> bool:
+    """Return whether ``collect_files_for_indexing`` would pick up this file.
+
+    Matches the configuration instead of walking the tree, so a file saved a
+    moment ago counts before the next rebuild and large trees stay cheap. The
+    binary-content check is left to the caller, which reads the file anyway.
+    """
+    file_path = os.path.normpath(file_path)
+    rel_path = os.path.relpath(file_path, project_root)
+    include_patterns = config["global_patterns"]["include"]
+    exclude_patterns = config["global_patterns"]["exclude"]
+    if not any(match_pattern(rel_path, p) for p in include_patterns):
+        return False
+    if any(match_pattern(rel_path, p) for p in exclude_patterns):
+        return False
+    if is_binary_file(file_path, None, config.get("encoding", {})):
+        return False
+
+    expanded_dirs = expand_index_dirs(config["index_dirs"], project_root)
+    excluded_dir_names = {
+        os.path.basename(d["path"].rstrip("/\\"))
+        for d in expanded_dirs
+        if d.get("exclude", False)
+    }
+    for dir_config in expanded_dirs:
+        if dir_config.get("exclude", False):
+            continue
+        base = os.path.normpath(os.path.join(project_root, dir_config["path"]))
+        if dir_config.get("type") == "file":
+            if base == file_path:
+                return True
+            continue
+        if is_inside(base, file_path) is not True:
+            continue
+        # os.walk prunes excluded names below the configured directory only
+        inner_dirs = to_index_path(os.path.relpath(file_path, base)).split("/")[:-1]
+        if not set(inner_dirs) & excluded_dir_names:
+            return True
+    return False
 
 
 def _maybe_add_file(

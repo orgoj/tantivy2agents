@@ -157,3 +157,10 @@ class FileSystemError(CLIError):
 
         hint = "Check file permissions and paths" if path else None
         super().__init__(message=message, hint=hint, context=context)
+
+
+class DocumentAccessError(CLIError):
+    """A ``read``/``outline`` target is not an indexed document or ref."""
+
+    def __init__(self, message: str, target: str, hint: Optional[str] = None):
+        super().__init__(message=message, hint=hint, context={"target": target})
