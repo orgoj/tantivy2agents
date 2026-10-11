@@ -78,7 +78,7 @@ tantivy2agents install --no-config
 **What install does:**
 1. Detects project type (Python, Node.js, Java, Rust, Generic)
 2. Creates `.tantivy2agents.json` with optimal settings
-3. Installs Claude Code hooks for auto-index updates
+3. Installs Claude Code hooks (optional; `search` refreshes the index itself)
 4. Adds index directory to `.gitignore`
 
 ## Project Type Detection
@@ -320,7 +320,9 @@ Enable/disable automatic Claude Code hook installation.
 
 ## Claude Code Hook Setup
 
-Auto-installed when `auto_hook: true`. Hook ensures index is marked for updates when files are modified.
+Auto-installed when `auto_hook: true`. Optional: `search` already detects
+added, changed and removed files on its own, so agents without hooks get a
+current index too. The hook only marks the index for a check.
 
 In `.claude/settings.json`:
 ```json

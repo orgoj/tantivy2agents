@@ -4,7 +4,41 @@ All notable project changes are tracked here.
 
 ## Unreleased
 
+### Added
+- `search` detects stale indexes without any hook. Every search stats the
+  candidate files and compares them with a manifest published inside `idx/`
+  (`t2a_state.json`: mtime_ns and size per file, plus a fingerprint of
+  `index_dirs`, `global_patterns`, `encoding` and `schema_fields`). Added,
+  changed and removed files are re-indexed into a copy of the live index that
+  is swapped in with a rename; config changes and a `path` field without the
+  `raw` tokenizer fall back to a full rebuild. Files edited during the refresh are picked up before
+  the triggering search runs (up to 3 rounds).
+
 ### Changed
+- `index` without `--force` uses the same incremental refresh and now notices
+  new files, restored older mtimes and config changes. `status` reports
+  out-of-date from the same check.
+- A project with no matching documents gets an empty index instead of none,
+  so `search` answers "No results found" instead of an index-not-found error.
+- When the file scan hits a permission or I/O error (including an unreadable
+  configured root, listed file or wildcard directory), the previous index is
+  kept and a warning goes to stderr; files are never dropped from an
+  incomplete scan. A file that cannot be read keeps its previous document and
+  is retried on the next search. `status` reports "Unknown" in that case.
+- A refresh interrupted between moving the old index aside and moving the new
+  one in is recovered from the retired copy on the next run.
+- `index_info.json` is rewritten when it does not match the live index, so an
+  interruption right after publishing heals itself.
+- `search` refreshes and queries under one lock acquisition, so a concurrent
+  `clear` cannot remove the index in between.
+- The `hook-clear` mark now only triggers a check, not a full rebuild. The
+  hook is optional.
+
+### Compatibility
+- An index written by 0.9.0 has no manifest and is rebuilt fully once.
+  `index_info.json` keeps `timestamp`, `files` and `count`, so 0.9.0 can still
+  read a data directory written by this version.
+
 - `mise run test` runs `pytest` over all of `tests/`. The old `run_tests.py`
   runner skipped `test_typer_cli.py` and `test_skill_commands.py`.
 - File collection is several times faster on large trees: include and

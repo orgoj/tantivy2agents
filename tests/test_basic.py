@@ -1106,17 +1106,22 @@ def test_output_formats():
         assert "Score,Path,Title" in result.stdout, "CSV output should have headers"
 
 
-def test_missing_index_raises_structured_error():
-    """Test search without an index raises a structured error."""
+def test_unreadable_index_raises_structured_error():
+    """Test a search that cannot read the index raises a structured error."""
     with tempfile.TemporaryDirectory() as temp_dir:
         os.makedirs(os.path.join(temp_dir, ".git"), exist_ok=True)
         original_cwd = os.getcwd()
         os.chdir(temp_dir)
         try:
             agent = TantivyAgent()
+
+            def unreadable(*args, **kwargs):
+                raise OSError("simulated unreadable index")
+
+            agent._collect_search_results = unreadable
             try:
                 agent.search_command("test")
-                assert False, "Missing index should raise IndexNotFoundError"
+                assert False, "Unreadable index should raise IndexNotFoundError"
             except IndexNotFoundError as e:
                 assert ".tantivy-data/idx" in str(e.context.get("index_dir", ""))
         finally:
@@ -1856,7 +1861,7 @@ def main():
             test_output_module_default_text_output_is_compact_exact,
         ),
         ("Output Formats", test_output_formats),
-        ("Missing Index Error", test_missing_index_raises_structured_error),
+        ("Unreadable Index Error", test_unreadable_index_raises_structured_error),
         (
             "Unsupported Direct Output Format",
             test_unsupported_direct_output_format_raises_validation_error,

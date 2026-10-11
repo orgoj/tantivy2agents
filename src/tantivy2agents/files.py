@@ -6,7 +6,9 @@ import fnmatch
 import glob
 import os
 import re
-from typing import Any
+import stat
+from dataclasses import dataclass, field
+from typing import Any, Callable, Iterator
 
 from .paths import is_inside, to_index_path, to_index_pattern
 
@@ -62,12 +64,25 @@ def _compile_patterns(patterns: list[str]) -> re.Pattern[str] | None:
 
 
 def expand_index_dirs(
-    pattern_list: list[Any], project_root: str
+    pattern_list: list[Any],
+    project_root: str,
+    onerror: Callable[[OSError], None] | None = None,
 ) -> list[dict[str, Any]]:
-    """Expand configured index directory/file patterns to concrete paths."""
+    """Expand configured index directory/file patterns to concrete paths.
+
+    ``glob`` reports an unreadable path as no match. With ``onerror``, the
+    included entries are probed first and access errors other than a missing
+    path are passed to it, so a caller can tell "gone" from "unreadable".
+    """
     expanded_paths = []
 
     for item in pattern_list:
+        if onerror is not None:
+            if isinstance(item, str):
+                _probe_pattern(project_root, item, onerror)
+            elif isinstance(item, dict) and not item.get("exclude", False):
+                _probe_pattern(project_root, item.get("path", ""), onerror)
+
         if isinstance(item, str):
             if "**" in item:
                 matches = glob.glob(os.path.join(project_root, item), recursive=True)
@@ -109,6 +124,74 @@ def expand_index_dirs(
     return expanded_paths
 
 
+def _probe_pattern(
+    project_root: str, pattern: str, onerror: Callable[[OSError], None]
+) -> None:
+    """Report access errors on every path that glob would read for a pattern.
+
+    The literal prefix is stat'ed. From there each component is followed the
+    way glob does: a wildcard component lists its directories, a literal one
+    stats its path, and every match is stat'ed. A recursive ``**`` pattern
+    walks the whole subtree below the prefix instead.
+    """
+
+    def report(error: OSError) -> None:
+        if not isinstance(error, FileNotFoundError):
+            onerror(error)
+
+    parts = [p for p in to_index_pattern(pattern).split("/") if p]
+    static_parts = []
+    for part in parts:
+        if glob.has_magic(part):
+            break
+        static_parts.append(part)
+    static_path = os.path.join(project_root, *static_parts)
+
+    try:
+        os.stat(static_path)
+    except OSError as e:
+        report(e)
+        return
+    if len(static_parts) == len(parts):
+        return
+    if "**" in pattern:
+        for _entry in os.walk(static_path, onerror=report):
+            pass
+        return
+
+    current = [static_path]
+    remaining = parts[len(static_parts) :]
+    for index, part in enumerate(remaining):
+        last = index == len(remaining) - 1
+        matches = []
+        for directory in current:
+            if not glob.has_magic(part):
+                matches.append(os.path.join(directory, part))
+                continue
+            try:
+                with os.scandir(directory) as entries:
+                    names = [entry.name for entry in entries]
+            except OSError as e:
+                report(e)
+                continue
+            # glob skips hidden names unless the pattern itself starts with "."
+            matches.extend(
+                os.path.join(directory, name)
+                for name in names
+                if fnmatch.fnmatch(name, part)
+                and (part.startswith(".") or not name.startswith("."))
+            )
+        current = []
+        for path in matches:
+            try:
+                st = os.stat(path)
+            except OSError as e:
+                report(e)
+                continue
+            if not last and stat.S_ISDIR(st.st_mode):
+                current.append(path)
+
+
 def is_binary_file(
     file_path: str,
     content_bytes: bytes | None = None,
@@ -148,6 +231,49 @@ def is_binary_file(
     return False
 
 
+@dataclass
+class ScanResult:
+    """Candidate files found by a stat-only walk.
+
+    ``entries`` maps the index path (the stored ``path`` field) to the
+    absolute path, ``st_mtime_ns`` and ``st_size``. ``errors`` lists what could
+    not be walked or stat'ed; a scan with errors must not be used to delete
+    documents, because a missing entry may just be unreadable for a moment.
+    """
+
+    entries: dict[str, tuple[str, int, int]] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+
+    @property
+    def complete(self) -> bool:
+        return not self.errors
+
+
+def scan_candidates(config: dict[str, Any], project_root: str) -> ScanResult:
+    """Stat every file ``collect_files_for_indexing`` would consider.
+
+    Files are not read, so binary and unreadable candidates are included.
+    """
+    result = ScanResult()
+
+    def on_walk_error(error: OSError) -> None:
+        # A directory removed while walking is a normal removal.
+        if not isinstance(error, FileNotFoundError):
+            result.errors.append(f"{error.filename}: {error.strerror}")
+
+    for file_path in _iter_candidates(config, project_root, onerror=on_walk_error):
+        try:
+            st = os.stat(file_path)
+        except FileNotFoundError:
+            continue
+        except OSError as e:
+            result.errors.append(f"{file_path}: {e.strerror}")
+            continue
+        key = to_index_path(os.path.relpath(file_path, project_root))
+        result.entries[key] = (file_path, st.st_mtime_ns, st.st_size)
+    return result
+
+
 def collect_files_for_indexing(
     config: dict[str, Any],
     project_root: str,
@@ -156,8 +282,46 @@ def collect_files_for_indexing(
 ) -> tuple[list[str], list[str]]:
     """Collect files to index based on configuration."""
     files = []
-    dirs_processed = []
-    expanded_dirs = expand_index_dirs(config["index_dirs"], project_root)
+    dirs_processed: list[str] = []
+    encoding_config = config.get("encoding", {})
+
+    for file_path in _iter_candidates(
+        config, project_root, dirs_processed if show_dirs else None
+    ):
+        if is_text_file(file_path, encoding_config):
+            files.append(file_path)
+            if show_files:
+                print(f"  {os.path.relpath(file_path, project_root)}")
+
+    unique_dirs = _unique(dirs_processed)
+
+    if show_dirs:
+        print("Directories to be processed:")
+        for dir_path in unique_dirs:
+            rel_dir = os.path.relpath(dir_path, project_root)
+            print(f"  {rel_dir}")
+
+    return files, unique_dirs
+
+
+def is_text_file(file_path: str, encoding_config: dict[str, Any]) -> bool:
+    """Return whether a candidate can be read and is not binary."""
+    try:
+        with open(file_path, "rb") as f:
+            content_bytes = f.read()
+    except OSError:
+        return False
+    return not is_binary_file(file_path, content_bytes, encoding_config)
+
+
+def _iter_candidates(
+    config: dict[str, Any],
+    project_root: str,
+    dirs_processed: list[str] | None = None,
+    onerror: Callable[[OSError], None] | None = None,
+) -> Iterator[str]:
+    """Yield each file matching the configured dirs and patterns once, in order."""
+    expanded_dirs = expand_index_dirs(config["index_dirs"], project_root, onerror)
 
     excluded_dir_names = set()
     for dir_config in expanded_dirs:
@@ -170,6 +334,15 @@ def collect_files_for_indexing(
     seen: set[str] = set()
     walked_roots: list[str] = []
 
+    def accept(file_path: str) -> bool:
+        if file_path in seen:
+            return False
+        rel_path = os.path.relpath(file_path, project_root)
+        if not include_patterns.matches(rel_path) or exclude_patterns.matches(rel_path):
+            return False
+        seen.add(file_path)
+        return True
+
     for dir_config in expanded_dirs:
         if dir_config.get("exclude", False):
             continue
@@ -177,23 +350,21 @@ def collect_files_for_indexing(
         dir_path = dir_config["path"]
 
         full_dir_path = os.path.normpath(os.path.join(project_root, dir_path))
-        if not os.path.exists(full_dir_path):
+        try:
+            os.stat(full_dir_path)
+        except FileNotFoundError:
+            continue
+        except OSError as e:
+            if onerror is not None:
+                onerror(e)
             continue
 
-        if show_dirs:
+        if dirs_processed is not None:
             dirs_processed.append(full_dir_path)
 
         if dir_config.get("type") == "file":
-            _maybe_add_file(
-                files,
-                seen,
-                full_dir_path,
-                project_root,
-                include_patterns,
-                exclude_patterns,
-                config.get("encoding", {}),
-                show_files,
-            )
+            if accept(full_dir_path):
+                yield full_dir_path
             continue
 
         # Overlapping entries such as "." and "docs" would walk the same
@@ -207,7 +378,7 @@ def collect_files_for_indexing(
         done_roots = set(walked_roots)
         walked_roots.append(full_dir_path)
 
-        for root, dirs, filenames in os.walk(full_dir_path):
+        for root, dirs, filenames in os.walk(full_dir_path, onerror=onerror):
             dirs[:] = [
                 d
                 for d in dirs
@@ -216,27 +387,9 @@ def collect_files_for_indexing(
             ]
 
             for filename in filenames:
-                _maybe_add_file(
-                    files,
-                    seen,
-                    os.path.join(root, filename),
-                    project_root,
-                    include_patterns,
-                    exclude_patterns,
-                    config.get("encoding", {}),
-                    show_files,
-                )
-
-    unique_files = _unique(files)
-    unique_dirs = _unique(dirs_processed)
-
-    if show_dirs:
-        print("Directories to be processed:")
-        for dir_path in unique_dirs:
-            rel_dir = os.path.relpath(dir_path, project_root)
-            print(f"  {rel_dir}")
-
-    return unique_files, unique_dirs
+                file_path = os.path.normpath(os.path.join(root, filename))
+                if accept(file_path):
+                    yield file_path
 
 
 def is_indexed_path(config: dict[str, Any], project_root: str, file_path: str) -> bool:
@@ -288,39 +441,6 @@ def _walk_reaches(root: str, target: str, excluded_dir_names: set[str]) -> bool:
     if rel_path == ".":
         return True
     return not set(rel_path.split("/")) & excluded_dir_names
-
-
-def _maybe_add_file(
-    files: list[str],
-    seen: set[str],
-    file_path: str,
-    project_root: str,
-    include_patterns: PatternSet,
-    exclude_patterns: PatternSet,
-    encoding_config: dict[str, Any],
-    show_files: bool,
-) -> None:
-    file_path = os.path.normpath(file_path)
-    if file_path in seen:
-        return
-    rel_path = os.path.relpath(file_path, project_root)
-
-    if not include_patterns.matches(rel_path) or exclude_patterns.matches(rel_path):
-        return
-    seen.add(file_path)
-
-    try:
-        with open(file_path, "rb") as f:
-            content_bytes = f.read()
-    except OSError:
-        return
-
-    if is_binary_file(file_path, content_bytes, encoding_config):
-        return
-
-    files.append(file_path)
-    if show_files:
-        print(f"  {rel_path}")
 
 
 def _unique(items: list[str]) -> list[str]:

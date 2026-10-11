@@ -160,6 +160,75 @@ def test_parallel_searches_on_stale_index_all_succeed():
         assert not leftovers, f"Scratch directories left behind: {leftovers}"
 
 
+COUNTING_RUNNER_SOURCE = """\
+import os
+import sys
+import time
+
+sys.path.insert(0, {src_path!r})
+
+from tantivy2agents import TantivyAgent
+
+go_file, log_file = sys.argv[1], sys.argv[2]
+publish = TantivyAgent._publish_index
+
+
+def counting_publish(self, build_dir, index_dir):
+    publish(self, build_dir, index_dir)
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(f"{{os.getpid()}}\\n")
+
+
+TantivyAgent._publish_index = counting_publish
+while not os.path.exists(go_file):
+    time.sleep(0.005)
+
+agent = TantivyAgent(quiet=True)
+agent.search_command("addedword", 5, "json", None)
+"""
+
+
+def test_parallel_searches_after_an_edit_publish_once():
+    """Searches racing on a changed tree refresh it once; the rest reuse it."""
+    with tempfile.TemporaryDirectory() as project_root:
+        _write_project(project_root)
+        _build_initial_index(project_root)
+        with open(os.path.join(project_root, "docs", "added.md"), "w") as f:
+            f.write("# Added\n\naddedword\n")
+
+        runner_path = os.path.join(project_root, "run_search.py")
+        with open(runner_path, "w", encoding="utf-8") as f:
+            f.write(COUNTING_RUNNER_SOURCE.format(src_path=SRC_PATH))
+        go_file = os.path.join(project_root, "go")
+        log_file = os.path.join(project_root, "publishes.log")
+
+        processes = [
+            subprocess.Popen(
+                [sys.executable, runner_path, go_file, log_file],
+                cwd=project_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for _ in range(PARALLEL_SEARCHES)
+        ]
+        time.sleep(1.0)
+        with open(go_file, "w", encoding="utf-8") as f:
+            f.write("go")
+
+        failures = []
+        for proc in processes:
+            stdout, stderr = proc.communicate(timeout=300)
+            if proc.returncode != 0:
+                failures.append(f"exit={proc.returncode} stderr={stderr.strip()}")
+            elif "docs/added.md" not in stdout:
+                failures.append(f"added file not found: {stdout[:200]!r}")
+        assert not failures, "Parallel searches failed:\n" + "\n".join(failures)
+
+        with open(log_file, encoding="utf-8") as f:
+            assert len(f.read().splitlines()) == 1
+
+
 def test_parallel_index_and_search_processes_coexist():
     """Forced rebuilds running next to searches must never break either side."""
     with tempfile.TemporaryDirectory() as project_root:

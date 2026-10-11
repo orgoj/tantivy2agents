@@ -5,13 +5,14 @@ Tantivy Agent - Main agent class for document indexing and search.
 import fnmatch
 import glob
 import contextlib
-import io
+import hashlib
 import json
 import logging
 import os
 import shutil
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
@@ -31,10 +32,12 @@ from .exceptions import (
     ValidationError,
 )
 from .files import (
+    ScanResult,
     collect_files_for_indexing,
     expand_index_dirs,
     is_binary_file,
     match_pattern,
+    scan_candidates,
 )
 from .locking import LOCK_FILENAME, IndexLock
 from .usage import USAGE_FILENAMES, UsageLog, new_search_id
@@ -64,6 +67,41 @@ RETIRED_DIR_PREFIX = ".retired-"
 # is closed, so directory swaps get a few attempts before giving up.
 DIR_RETRY_ATTEMPTS = 10
 DIR_RETRY_DELAY = 0.05
+
+# Manifest published inside idx/ with the index files it describes. Bump the
+# format whenever documents are built differently, to force a full rebuild.
+INDEX_STATE_FILENAME = "t2a_state.json"
+INDEX_STATE_FORMAT = 1
+FINGERPRINT_CONFIG_KEYS = ("index_dirs", "global_patterns", "encoding", "schema_fields")
+# Scan/apply rounds per refresh; a tree that keeps changing is published after
+# the last round and picked up by the next search.
+MAX_REFRESH_ROUNDS = 3
+MAX_REPORTED_SCAN_ERRORS = 5
+
+
+class DocumentReadError(Exception):
+    """A candidate file could not be read; it may succeed on the next attempt."""
+
+
+def _valid_manifest_entry(key, value) -> bool:
+    """Manifest entry: [mtime_ns or None, size or None, indexed]."""
+    return (
+        isinstance(key, str)
+        and isinstance(value, list)
+        and len(value) == 3
+        and all(v is None or (type(v) is int) for v in value[:2])
+        and isinstance(value[2], bool)
+    )
+
+
+@dataclass
+class RefreshResult:
+    """Outcome of bringing the index in line with the files on disk."""
+
+    action: str  # fresh, kept, updated or rebuilt
+    count: int
+    changed: int = 0
+
 
 # Optional dependency for advanced encoding detection
 try:
@@ -255,11 +293,14 @@ class TantivyAgent:
 
     def _write_index_info(self, data_dir: str, index_info: dict) -> None:
         """Write index metadata atomically so readers never see a partial file."""
-        target = os.path.join(data_dir, "index_info.json")
+        self._write_json_atomic(os.path.join(data_dir, "index_info.json"), index_info)
+
+    @staticmethod
+    def _write_json_atomic(target: str, payload: dict) -> None:
         tmp_path = f"{target}.tmp-{uuid.uuid4().hex}"
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(index_info, f, indent=2)
+                json.dump(payload, f, indent=2)
             os.replace(tmp_path, target)
         except OSError:
             with contextlib.suppress(OSError):
@@ -491,32 +532,39 @@ class TantivyAgent:
             return None, f"error: {str(e)}"
 
     def _parse_markdown(self, file_path):
-        """Parse markdown file and extract metadata"""
+        """Parse markdown file and extract metadata; None if binary or unreadable."""
+        try:
+            return self._load_document(file_path)
+        except DocumentReadError as e:
+            logger.warning("Error reading %s: %s", file_path, e)
+            return None
+
+    def _load_document(self, file_path):
+        """Build the index document for a file.
+
+        Returns None for a binary file, which is a stable property of its
+        content. Raises DocumentReadError when the file could not be read, which
+        may be temporary, so the caller can keep the previous document.
+        """
         import re
 
         try:
             content, encoding_info = self._read_file_with_encoding_detection(file_path)
-
-            if content is None:
-                if encoding_info == "binary":
-                    # Skip binary files silently
-                    return None
-                else:
-                    # Report reading errors
-                    logger.warning("Error reading %s: %s", file_path, encoding_info)
-                    return None
-
-            # Log encoding detection for debugging (only if not UTF-8)
-            if encoding_info != "utf-8":
-                logger.debug(
-                    "%s: detected encoding %s",
-                    os.path.relpath(file_path, self.project_root),
-                    encoding_info,
-                )
-
         except OSError as e:
-            logger.warning("Error reading %s: %s", file_path, e)
-            return None
+            raise DocumentReadError(str(e)) from e
+
+        if content is None:
+            if encoding_info == "binary":
+                return None
+            raise DocumentReadError(encoding_info)
+
+        # Log encoding detection for debugging (only if not UTF-8)
+        if encoding_info != "utf-8":
+            logger.debug(
+                "%s: detected encoding %s",
+                os.path.relpath(file_path, self.project_root),
+                encoding_info,
+            )
 
         meta = {}
         body = content
@@ -601,31 +649,311 @@ class TantivyAgent:
 
         return schema_builder.build()
 
-    def _should_rebuild_index(self, data_dir):
-        """Check if index needs to be rebuilt based on file modifications"""
-        index_info_path = os.path.join(data_dir, "index_info.json")
+    def _config_fingerprint(self) -> str:
+        """Hash of every setting that changes which documents the index holds."""
+        relevant = {key: self.config.get(key) for key in FINGERPRINT_CONFIG_KEYS}
+        relevant["format"] = INDEX_STATE_FORMAT
+        encoded = json.dumps(relevant, sort_keys=True, default=str).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
-        if not os.path.exists(index_info_path):
-            return True
+    def _incremental_allowed(self) -> bool:
+        """Deleting a document by path needs the path stored as one raw term."""
+        path_field = self.config["schema_fields"].get("path") or {}
+        return path_field.get("tokenizer") == "raw"
 
+    def _read_index_state(self, index_dir: str) -> Optional[dict]:
+        """Return the manifest published with the index, or None when unusable."""
         try:
-            with open(index_info_path, "r", encoding="utf-8") as f:
-                index_info = json.load(f)
+            with open(
+                os.path.join(index_dir, INDEX_STATE_FILENAME), "r", encoding="utf-8"
+            ) as f:
+                state = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return None
+        if (
+            not isinstance(state, dict)
+            or state.get("format") != INDEX_STATE_FORMAT
+            or state.get("config_fingerprint") != self._config_fingerprint()
+            or not isinstance(state.get("manifest"), dict)
+            or not all(
+                _valid_manifest_entry(key, value)
+                for key, value in state["manifest"].items()
+            )
+        ):
+            return None
+        return state
 
-            # Check if any indexed file was modified
-            for file_path in index_info.get("files", []):
-                if os.path.exists(file_path):
-                    file_mtime = os.path.getmtime(file_path)
-                    if file_mtime > index_info.get("timestamp", 0):
-                        return True
-                else:
-                    # File was deleted
-                    return True
+    @staticmethod
+    def _diff_manifest(manifest: dict, entries: dict) -> tuple[list[str], list[str]]:
+        """Return (removed, added or changed) index paths."""
+        removed = [key for key in manifest if key not in entries]
+        refresh = [
+            key
+            for key, (_path, mtime_ns, size) in entries.items()
+            if key not in manifest
+            or manifest[key][0] != mtime_ns
+            or manifest[key][1] != size
+        ]
+        return removed, refresh
 
+    def _index_is_current(self, index_dir: str) -> Optional[bool]:
+        """Read-only check: the published manifest matches the files on disk.
+
+        Returns None when the files could not all be scanned.
+        """
+        if not os.path.exists(index_dir) or not self._index_can_open(index_dir):
             return False
-        except (OSError, json.JSONDecodeError, KeyError):
-            # If we can't read index info or it's corrupt, rebuild
-            return True
+        state = self._read_index_state(index_dir)
+        if state is None:
+            return False
+        scan = scan_candidates(self.config, self.project_root)
+        if not scan.complete:
+            return None
+        removed, refresh = self._diff_manifest(state["manifest"], scan.entries)
+        return not removed and not refresh
+
+    def _recover_retired_index(self, data_dir: str, index_dir: str) -> None:
+        """Put back the last good index if a publish died between its renames.
+
+        Publishing moves idx/ aside before moving the new build in; a crash in
+        between leaves only the retired copy, which cleanup would delete.
+        """
+        if os.path.exists(index_dir):
+            return
+        try:
+            entries = os.listdir(data_dir)
+        except OSError:
+            return
+        retired = [
+            os.path.join(data_dir, entry)
+            for entry in entries
+            if entry.startswith(RETIRED_DIR_PREFIX)
+        ]
+        # Only a real directory published by this tool qualifies: a symlink
+        # could point the live index outside the project.
+        retired = [
+            path
+            for path in retired
+            if os.path.isdir(path)
+            and not os.path.islink(path)
+            and os.path.dirname(os.path.realpath(path)) == os.path.realpath(data_dir)
+        ]
+        retired.sort(key=os.path.getmtime, reverse=True)
+        for path in retired:
+            # Its manifest may be missing or stale (older version, changed
+            # config); the normal check then rebuilds beside it, so a failed
+            # rebuild still leaves this index searchable.
+            if self._index_can_open(path):
+                self._rename_with_retry(path, index_dir)
+                logger.warning("Recovered the previous index after an interruption")
+                return
+
+    def _refresh_index_locked(
+        self, data_dir: str, index_dir: str, force: bool = False
+    ) -> RefreshResult:
+        """Bring the index in line with the files on disk.
+
+        Must be called while holding the write lock. Unchanged files cost one
+        stat each; changed files are re-indexed into a copy of the live index
+        when possible and the whole index is rebuilt otherwise.
+        """
+        self._recover_retired_index(data_dir, index_dir)
+        self._cleanup_stale_index_dirs(data_dir)
+        scan = scan_candidates(self.config, self.project_root)
+
+        index_usable = os.path.exists(index_dir) and self._index_can_open(index_dir)
+        state = self._read_index_state(index_dir) if index_usable else None
+
+        if not scan.complete:
+            for error in scan.errors[:MAX_REPORTED_SCAN_ERRORS]:
+                logger.warning("Cannot scan %s", error)
+            if index_usable:
+                # A file missing from an incomplete scan may only be unreadable
+                # for a moment; deleting its document would lose search hits.
+                logger.warning("Index not refreshed: file scan incomplete")
+                return RefreshResult("kept", self._indexed_count(data_dir))
+
+        if state is not None and not force:
+            removed, refresh = self._diff_manifest(state["manifest"], scan.entries)
+            if not removed and not refresh:
+                count = self._repair_index_info(data_dir, state["manifest"], scan)
+                return RefreshResult("fresh", count)
+            if self._incremental_allowed():
+                return self._build_and_publish(data_dir, index_dir, scan, state)
+
+        return self._build_and_publish(data_dir, index_dir, scan, None)
+
+    def _build_and_publish(
+        self,
+        data_dir: str,
+        index_dir: str,
+        scan: ScanResult,
+        state: Optional[dict],
+    ) -> RefreshResult:
+        """Build beside the live index, then swap it in with one rename.
+
+        ``state`` None means a full build into an empty index; otherwise the
+        live index is copied and only the changed paths are rewritten. The
+        manifest is written into the build directory, so it is published
+        together with the index files it describes.
+        """
+        self._ensure_data_dir()
+        build_dir = os.path.join(data_dir, f"{BUILD_DIR_PREFIX}{uuid.uuid4().hex}")
+        incremental = state is not None
+        try:
+            if incremental:
+                shutil.copytree(index_dir, build_dir)
+                manifest = dict(state["manifest"])
+                removed, refresh = self._diff_manifest(manifest, scan.entries)
+            else:
+                os.makedirs(build_dir)
+                tantivy.Index(self._create_schema(), path=build_dir)
+                manifest = {}
+                removed, refresh = [], list(scan.entries)
+
+            # A rescan after each round catches files edited during the build,
+            # so the search that triggered the refresh already sees them.
+            # Without raw paths a repeated round could duplicate documents.
+            rounds = MAX_REFRESH_ROUNDS if self._incremental_allowed() else 1
+            changed = 0
+            for round_number in range(1, rounds + 1):
+                self._apply_changes(build_dir, scan, manifest, removed, refresh)
+                changed += len(removed) + len(refresh)
+                if round_number == rounds:
+                    break
+                rescan = scan_candidates(self.config, self.project_root)
+                if not rescan.complete:
+                    break
+                removed, refresh = self._diff_manifest(manifest, rescan.entries)
+                if not removed and not refresh:
+                    break
+                scan = rescan
+
+            count = self._count_documents(build_dir)
+            self._write_json_atomic(
+                os.path.join(build_dir, INDEX_STATE_FILENAME),
+                {
+                    "format": INDEX_STATE_FORMAT,
+                    "config_fingerprint": self._config_fingerprint(),
+                    "manifest": manifest,
+                },
+            )
+            self._publish_index(build_dir, index_dir)
+        finally:
+            shutil.rmtree(build_dir, ignore_errors=True)
+
+        self._write_index_info(
+            data_dir,
+            {
+                "timestamp": time.time(),
+                "files": self._indexed_files(manifest, scan),
+                "count": count,
+            },
+        )
+        return RefreshResult("updated" if incremental else "rebuilt", count, changed)
+
+    def _indexed_files(self, manifest: dict, scan: ScanResult) -> list[str]:
+        """Absolute paths of indexed documents, as 0.9.0 stored them."""
+        return [
+            scan.entries[key][0]
+            if key in scan.entries
+            else os.path.normpath(os.path.join(self.project_root, key))
+            for key, (_mtime, _size, indexed) in manifest.items()
+            if indexed
+        ]
+
+    def _repair_index_info(
+        self, data_dir: str, manifest: dict, scan: ScanResult
+    ) -> int:
+        """Rewrite index_info.json when it does not describe the live index.
+
+        It is written after the publish, so a crash in between leaves it
+        missing or stale. A current file is left alone; the hook's
+        ``outdated`` mark is dropped because the check just ran.
+        """
+        files = self._indexed_files(manifest, scan)
+        info = self._read_index_info(data_dir)
+        if (
+            info is not None
+            and "outdated" not in info
+            and isinstance(info.get("timestamp"), (int, float))
+            and info.get("count") == len(files)
+            and info.get("files") == files
+        ):
+            return len(files)
+        self._write_index_info(
+            data_dir, {"timestamp": time.time(), "files": files, "count": len(files)}
+        )
+        return len(files)
+
+    def _apply_changes(
+        self,
+        build_dir: str,
+        scan: ScanResult,
+        manifest: dict,
+        removed: list[str],
+        refresh: list[str],
+    ) -> None:
+        """Delete and re-add documents in ``build_dir``; update ``manifest``.
+
+        Every refreshed path is deleted first, added ones included, so replaying
+        a round never leaves a document twice. A file that cannot be read keeps
+        its previous document and an entry that never matches a scan, so it is
+        retried on the next refresh instead of being dropped. Tantivy handles
+        stay inside this method: Windows cannot rename a directory that still
+        has open files.
+        """
+        index = tantivy.Index.open(build_dir)
+        writer = index.writer()
+        try:
+            for key in removed:
+                writer.delete_documents_by_term("path", key)
+                manifest.pop(key, None)
+            for key in refresh:
+                file_path, mtime_ns, size = scan.entries[key]
+                try:
+                    doc = self._load_document(file_path)
+                except DocumentReadError as e:
+                    logger.warning("Cannot read %s, will retry: %s", file_path, e)
+                    was_indexed = manifest.get(key, [None, None, False])[2]
+                    manifest[key] = [None, None, was_indexed]
+                    continue
+                writer.delete_documents_by_term("path", key)
+                if doc:
+                    writer.add_document(tantivy.Document(**doc))
+                # The stat was taken before the read, so an edit racing this
+                # read shows up as a difference on the next scan.
+                manifest[key] = [mtime_ns, size, doc is not None]
+            writer.commit()
+            writer.wait_merging_threads()
+        except Exception as e:
+            logger.error("Failed to write index: %s", e)
+            raise RuntimeError(f"Index write failed: {e}") from e
+        finally:
+            del writer
+            del index
+
+    @staticmethod
+    def _count_documents(index_dir: str) -> int:
+        index = tantivy.Index.open(index_dir)
+        try:
+            return index.searcher().num_docs
+        finally:
+            del index
+
+    def _indexed_count(self, data_dir: str) -> int:
+        index_info = self._read_index_info(data_dir) or {}
+        return int(index_info.get("count", 0) or 0)
+
+    def _read_index_info(self, data_dir: str) -> Optional[dict]:
+        try:
+            with open(
+                os.path.join(data_dir, "index_info.json"), "r", encoding="utf-8"
+            ) as f:
+                index_info = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return None
+        return index_info if isinstance(index_info, dict) else None
 
     def index_command(
         self, force: bool = False, show_dirs: bool = False, show_files: bool = False
@@ -639,74 +967,29 @@ class TantivyAgent:
             self._index_locked(force, show_dirs, show_files)
 
     def _index_locked(self, force: bool, show_dirs: bool, show_files: bool) -> None:
-        """Rebuild the index. Must be called while holding the write lock."""
+        """Refresh the index. Must be called while holding the write lock."""
         print("Starting document indexing...")
 
-        # Ensure data directory exists
         data_dir = self._ensure_data_dir()
         index_dir = os.path.join(data_dir, "idx")
-        self._cleanup_stale_index_dirs(data_dir)
 
-        # Check if rebuild is needed
-        if not force and not self._should_rebuild_index(data_dir):
+        if show_dirs or show_files:
+            self._get_files_for_indexing(show_dirs, show_files)
+
+        result = self._refresh_index_locked(data_dir, index_dir, force=force)
+
+        if result.action == "fresh":
             print("Index is up to date")
             return
-
-        # Get files to index
-        files, dirs_processed = self._get_files_for_indexing(show_dirs, show_files)
-        if not files:
-            print("No files found to index")
+        if result.action == "kept":
+            print("Index kept: the file scan was incomplete")
             return
-
-        print(f"Found {len(files)} files to index")
-
-        # Parse documents
-        docs = []
-        for file_path in files:
-            doc = self._parse_markdown(file_path)
-            if doc:
-                docs.append(doc)
-
-        if not docs:
-            print("No valid documents found")
+        if result.count == 0:
+            print("No documents found to index; published an empty index")
             return
-
-        # Build the new index beside the live one so a failed rebuild leaves
-        # the last usable index untouched.
-        build_dir = os.path.join(data_dir, f"{BUILD_DIR_PREFIX}{uuid.uuid4().hex}")
-        try:
-            os.makedirs(build_dir)
-
-            # Create schema and index
-            schema = self._create_schema()
-            index = tantivy.Index(schema, path=build_dir)
-
-            # Index documents
-            print(f"Indexing {len(docs)} documents...")
-            writer = index.writer()
-
-            try:
-                for doc_data in docs:
-                    writer.add_document(tantivy.Document(**doc_data))
-
-                writer.commit()
-            except Exception as e:
-                logger.error("Failed to write index: %s", e)
-                raise RuntimeError(f"Index write failed: {e}") from e
-
-            # Drop writer/index handles before swapping directories
-            del writer
-            del index
-
-            self._publish_index(build_dir, index_dir)
-        finally:
-            shutil.rmtree(build_dir, ignore_errors=True)
-
-        # Save index info
-        index_info = {"timestamp": time.time(), "files": files, "count": len(docs)}
-        self._write_index_info(data_dir, index_info)
-
-        print(f"Successfully indexed {len(docs)} documents")
+        if result.action == "updated":
+            print(f"Updated {result.changed} changed files")
+        print(f"Successfully indexed {result.count} documents")
         print(f"Index saved to: {index_dir}")
         print("You can now search with: tantivy2agents search 'your query'")
 
@@ -731,22 +1014,21 @@ class TantivyAgent:
         data_dir = os.path.join(self.project_root, self.config["index_dir"])
         index_dir = os.path.join(data_dir, "idx")
 
-        self._ensure_search_index(data_dir, index_dir)
-
         limit = limit or self.config["search"]["default_limit"]
 
-        try:
-            # Hold the lock so a concurrent rebuild waits until this search has
-            # finished with the index files it opened. Every tantivy handle is
-            # confined to the helper below and dies before the lock is
-            # released: Windows refuses to rename or delete a directory that
-            # any process still holds open.
-            with self.index_lock.acquire():
+        # One lock transaction covers the refresh and the query, so a
+        # concurrent clear or rebuild cannot slip in between them. Every
+        # tantivy handle is confined to the helpers and dies before the lock
+        # is released: Windows refuses to rename or delete a directory that
+        # any process still holds open.
+        with self.index_lock.acquire():
+            self._ensure_search_index(data_dir, index_dir)
+            try:
                 had_hits, unique_results = self._collect_search_results(
                     index_dir, query, limit
                 )
-        except (OSError, ValueError, RuntimeError) as e:
-            raise IndexNotFoundError(index_dir=index_dir) from e
+            except (OSError, ValueError, RuntimeError) as e:
+                raise IndexNotFoundError(index_dir=index_dir) from e
 
         shown = unique_results[:limit]
         search_id = self._log_search(query, limit, shown)
@@ -828,28 +1110,17 @@ class TantivyAgent:
         return True, self._deduplicate_results_by_path(filtered_results)
 
     def _ensure_search_index(self, data_dir: str, index_dir: str) -> None:
-        """Build or refresh the index before search when needed.
+        """Refresh the index from the files on disk before every search.
 
-        The staleness check is repeated under the write lock: when several
-        searches race, only the first one rebuilds and the others simply use
-        the index it published.
+        No hook is needed: the check stats every candidate file under the
+        write lock, so when several searches race only the first one rebuilds
+        and the others find the index it published already current.
         """
-        if self._search_index_needs_rebuild(data_dir, index_dir):
-            with self.index_lock.acquire():
-                if self._search_index_needs_rebuild(data_dir, index_dir):
-                    with contextlib.redirect_stdout(io.StringIO()):
-                        self.index_command(force=True)
+        with self.index_lock.acquire():
+            self._refresh_index_locked(data_dir, index_dir)
 
         if not os.path.exists(index_dir):
             raise IndexNotFoundError(index_dir=index_dir)
-
-    def _search_index_needs_rebuild(self, data_dir: str, index_dir: str) -> bool:
-        """Return True when the index is missing, stale or unopenable."""
-        return (
-            not os.path.exists(index_dir)
-            or self._is_index_outdated(data_dir)
-            or not self._index_can_open(index_dir)
-        )
 
     def _index_can_open(self, index_dir: str) -> bool:
         """Return True when an existing index directory can be opened."""
@@ -858,17 +1129,6 @@ class TantivyAgent:
             return True
         except (OSError, ValueError, RuntimeError):
             return False
-
-    def _is_index_outdated(self, data_dir: str) -> bool:
-        """Return True when hook metadata marks the index stale."""
-        index_info_path = os.path.join(data_dir, "index_info.json")
-        try:
-            with open(index_info_path, "r", encoding="utf-8") as f:
-                index_info = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            return False
-
-        return index_info.get("outdated") is True
 
     def _candidate_limit(self, limit: int) -> int:
         """Return enough candidates for path filters without expensive paging."""
@@ -1426,10 +1686,15 @@ class TantivyAgent:
         # Index status
         try:
             if index_info is not None:
-                needs_rebuild = self._should_rebuild_index(data_dir)
-                if needs_rebuild:
+                with self.index_lock.acquire():
+                    current = self._index_is_current(index_path)
+                if current is None:
+                    print("   Index status: Unknown (some files could not be scanned)")
+                elif not current:
                     print("   Index status: Out of date")
-                    print("   Run 'tantivy2agents index' to update")
+                    print(
+                        "   The next search updates it, or run 'tantivy2agents index'"
+                    )
                 else:
                     print("   Index status: Up to date")
             else:

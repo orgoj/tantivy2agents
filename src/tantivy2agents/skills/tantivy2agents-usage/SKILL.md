@@ -227,8 +227,8 @@ servers: [s8, s9]
 - Read the returned files before acting, via `outline`/`read` with the ref.
 
 **After file changes:**
-- Index updates automatically if configured with hooks
-- Or run `tantivy2agents index` manually
+- Nothing to do: every `search` re-indexes added, changed and removed files
+  first, with or without hooks
 
 **Performance:**
 - Incremental indexing only reprocesses changed files
@@ -255,11 +255,9 @@ servers: [s8, s9]
 **Stale results:**
 - Check index status: `tantivy2agents status`
 - `search` refreshes missing or stale indexes automatically
+- A stderr warning `Index not refreshed: file scan incomplete` means some
+  file or directory could not be read; fix its permissions
 - Force a manual rebuild with `tantivy2agents index --force` if needed
-
-**Index outdated:**
-- Files changed since last index
-- The next `tantivy2agents search ...` refreshes the index before searching
 
 ## Getting More Help
 

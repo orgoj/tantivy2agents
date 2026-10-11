@@ -13,8 +13,9 @@ project documentation cheap to query during agent work, without sending the
 whole repository into a prompt and without depending on a remote service.
 
 The CLI builds a `.tantivy-data/` index inside the project, searches it with BM25
-ranking, and can install Claude Code hooks that mark the index stale after file
-edits. Search output is intentionally compact by default so agents can consume
+ranking, and refreshes it before every search: each candidate file is stat'ed
+and only added, changed or removed files are re-indexed, so no editor hook is
+needed. Search output is intentionally compact by default so agents can consume
 results with low token cost.
 
 ## Purpose
@@ -46,7 +47,12 @@ The current implementation already matches the core purpose in several ways:
 - index and output paths are constrained to the project root unless explicitly
   overridden;
 - search results support compact text, JSON, CSV, and opt-in snippets;
-- missing, stale, or unusable indexes are refreshed automatically by `search`;
+- `search` and `index` compare a manifest published inside `idx/`
+  (`t2a_state.json`: size and mtime of every candidate file plus a config
+  fingerprint) with the files on disk, re-index only what changed, and rebuild
+  fully after config changes or a missing/unusable index. If the file scan
+  hits a permission or I/O error, the previous index is kept and a warning is
+  printed to stderr;
 - Markdown frontmatter can improve ranking and filtering;
 - Czech text normalization helps local documentation written in Czech;
 - packaged `skill-usage` and `skill-setup` commands make the installed tool
@@ -99,7 +105,7 @@ tantivy2agents status
 | --- | --- |
 | `install` | Detect project type, create `.tantivy2agents.json`, install hooks |
 | `list` | Preview files that would be indexed |
-| `index` | Build or update the search index |
+| `index` | Update changed files in the index; `--force` rebuilds it fully |
 | `search "query"` | Search indexed documents |
 | `outline REF\|PATH` | Headings of an indexed document with slugs and line ranges |
 | `read REF\|PATH` | Print an indexed document, `--section SLUG` or `--lines A-B` |
@@ -108,7 +114,7 @@ tantivy2agents status
 | `clear` | Delete index data (keeps the lock file and usage log) |
 | `encoding-info` | Analyze encodings for indexed files |
 | `config-example` | Print a full config template |
-| `hook-clear` | Internal hook support; mark index stale after edits |
+| `hook-clear` | Internal hook support; optional, `search` detects edits itself |
 | `skill-usage` | Print the packaged usage guide from the installed package |
 | `skill-setup` | Print the packaged setup/configuration guide from the installed package |
 
