@@ -2,7 +2,7 @@
 
 All notable project changes are tracked here.
 
-## Unreleased
+## [0.10.0] - 2026-10-11
 
 ### Added
 - `search` detects stale indexes without any hook. Every search stats the

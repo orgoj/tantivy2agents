@@ -107,7 +107,8 @@ tantivy2agents status
 - Document count and last update time
 - Index size and file count
 - Files available vs missing
-- Index status (up to date / needs rebuild)
+- Index status: Up to date, Out of date (the next search updates it) or
+  Unknown (some files could not be scanned)
 - Tantivy version
 
 ### Other Commands
@@ -116,7 +117,7 @@ tantivy2agents status
 tantivy2agents usage --since 7d # Which results were read via read/outline
 tantivy2agents clear            # Delete index
 tantivy2agents config-example   # Show config template
-tantivy2agents hook-clear       # Internal hook support; mark index outdated
+tantivy2agents hook-clear       # Optional hook support; next search re-checks files
 tantivy2agents encoding-info    # Analyze file encodings
 tantivy2agents list             # Preview files without indexing
 tantivy2agents skill-usage      # Print this packaged usage guide

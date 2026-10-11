@@ -25,6 +25,9 @@ Keep this file short. Put user-facing docs in `README.md`, release history in
 - Any index read or write must go through the index lock (`locking.py`).
   Never delete or rebuild `idx/` in place; build beside it and publish with a
   rename.
+- Index changes go through `_refresh_index_locked`, which keeps the
+  `t2a_state.json` manifest inside `idx/` in sync. Bump `INDEX_STATE_FORMAT`
+  whenever documents are built differently, so old indexes rebuild once.
 - Windows and macOS are supported but untested on real machines. Route path
   walking, separators and containment checks through `paths.py`, never compare
   against `"/"` or call `commonpath` directly, and cover Windows rules in

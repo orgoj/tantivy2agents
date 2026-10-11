@@ -198,7 +198,12 @@ next to the index directory, not inside it:
 - Every `index`, `clear`, search-triggered rebuild and `search` holds the lock,
   so processes wait instead of deleting an index that is still in use.
 - A new index is built in a scratch directory and swapped in with an atomic
-  rename, so a failed rebuild leaves the last usable index in place.
+  rename, so a failed rebuild leaves the last usable index in place. An
+  incremental refresh works the same way on a copy of the live index.
+- `search` refreshes and queries under one lock acquisition, so a concurrent
+  `clear` or rebuild cannot remove the index between the two.
+- If a run dies after moving the old index aside and before moving the new
+  one in, the next run restores the old index from that retired copy.
 - The lock is taken through `fcntl.flock` on POSIX and `msvcrt.locking` on
   Windows. Both are released by the operating system when the process exits,
   so a crashed or killed run never leaves a lock behind.
