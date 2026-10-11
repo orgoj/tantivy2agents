@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import glob
 import os
+import re
 from typing import Any
 
 from .paths import is_inside, to_index_path, to_index_pattern
@@ -28,6 +29,36 @@ def match_pattern(path: str, pattern: str) -> bool:
         return fnmatch.fnmatch(os.path.basename(normalized_path), normalized_pattern)
 
     return False
+
+
+class PatternSet:
+    """Match paths against many glob patterns with ``match_pattern`` semantics.
+
+    The patterns are compiled into two regular expressions once, so a large
+    tree costs two regex matches per file instead of one or two ``fnmatch``
+    calls per pattern.
+    """
+
+    def __init__(self, patterns: list[str]) -> None:
+        normalized = [to_index_pattern(pattern) for pattern in patterns]
+        self._full = _compile_patterns(normalized)
+        self._base = _compile_patterns([p for p in normalized if "/" not in p])
+
+    def matches(self, path: str) -> bool:
+        normalized_path = to_index_path(path)
+        if self._full and self._full.match(os.path.normcase(normalized_path)):
+            return True
+        basename = os.path.basename(normalized_path)
+        return bool(self._base and self._base.match(os.path.normcase(basename)))
+
+
+def _compile_patterns(patterns: list[str]) -> re.Pattern[str] | None:
+    # fnmatch.fnmatch normalizes the case of both sides the same way.
+    if not patterns:
+        return None
+    return re.compile(
+        "|".join(fnmatch.translate(os.path.normcase(p)) for p in patterns)
+    )
 
 
 def expand_index_dirs(
@@ -134,13 +165,16 @@ def collect_files_for_indexing(
             dir_path = dir_config["path"]
             excluded_dir_names.add(os.path.basename(dir_path.rstrip("/\\")))
 
+    include_patterns = PatternSet(config["global_patterns"]["include"])
+    exclude_patterns = PatternSet(config["global_patterns"]["exclude"])
+    seen: set[str] = set()
+    walked_roots: list[str] = []
+
     for dir_config in expanded_dirs:
         if dir_config.get("exclude", False):
             continue
 
         dir_path = dir_config["path"]
-        include_patterns = config["global_patterns"]["include"]
-        exclude_patterns = config["global_patterns"]["exclude"]
 
         full_dir_path = os.path.normpath(os.path.join(project_root, dir_path))
         if not os.path.exists(full_dir_path):
@@ -152,6 +186,7 @@ def collect_files_for_indexing(
         if dir_config.get("type") == "file":
             _maybe_add_file(
                 files,
+                seen,
                 full_dir_path,
                 project_root,
                 include_patterns,
@@ -159,20 +194,38 @@ def collect_files_for_indexing(
                 config.get("encoding", {}),
                 show_files,
             )
-        else:
-            for root, dirs, filenames in os.walk(full_dir_path):
-                dirs[:] = [d for d in dirs if d not in excluded_dir_names]
+            continue
 
-                for filename in filenames:
-                    _maybe_add_file(
-                        files,
-                        os.path.join(root, filename),
-                        project_root,
-                        include_patterns,
-                        exclude_patterns,
-                        config.get("encoding", {}),
-                        show_files,
-                    )
+        # Overlapping entries such as "." and "docs" would walk the same
+        # subtree twice; the earlier walk already found every file the later
+        # one could, so the result is the same without the second pass.
+        if any(
+            _walk_reaches(root, full_dir_path, excluded_dir_names)
+            for root in walked_roots
+        ):
+            continue
+        done_roots = set(walked_roots)
+        walked_roots.append(full_dir_path)
+
+        for root, dirs, filenames in os.walk(full_dir_path):
+            dirs[:] = [
+                d
+                for d in dirs
+                if d not in excluded_dir_names
+                and os.path.join(root, d) not in done_roots
+            ]
+
+            for filename in filenames:
+                _maybe_add_file(
+                    files,
+                    seen,
+                    os.path.join(root, filename),
+                    project_root,
+                    include_patterns,
+                    exclude_patterns,
+                    config.get("encoding", {}),
+                    show_files,
+                )
 
     unique_files = _unique(files)
     unique_dirs = _unique(dirs_processed)
@@ -227,23 +280,34 @@ def is_indexed_path(config: dict[str, Any], project_root: str, file_path: str) -
     return False
 
 
+def _walk_reaches(root: str, target: str, excluded_dir_names: set[str]) -> bool:
+    """Return whether walking ``root`` with pruning visits directory ``target``."""
+    if is_inside(root, target) is not True:
+        return False
+    rel_path = to_index_path(os.path.relpath(target, root))
+    if rel_path == ".":
+        return True
+    return not set(rel_path.split("/")) & excluded_dir_names
+
+
 def _maybe_add_file(
     files: list[str],
+    seen: set[str],
     file_path: str,
     project_root: str,
-    include_patterns: list[str],
-    exclude_patterns: list[str],
+    include_patterns: PatternSet,
+    exclude_patterns: PatternSet,
     encoding_config: dict[str, Any],
     show_files: bool,
 ) -> None:
     file_path = os.path.normpath(file_path)
+    if file_path in seen:
+        return
     rel_path = os.path.relpath(file_path, project_root)
 
-    included = any(match_pattern(rel_path, pattern) for pattern in include_patterns)
-    excluded = any(match_pattern(rel_path, pattern) for pattern in exclude_patterns)
-
-    if not included or excluded:
+    if not include_patterns.matches(rel_path) or exclude_patterns.matches(rel_path):
         return
+    seen.add(file_path)
 
     try:
         with open(file_path, "rb") as f:

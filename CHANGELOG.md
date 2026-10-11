@@ -7,6 +7,11 @@ All notable project changes are tracked here.
 ### Changed
 - `mise run test` runs `pytest` over all of `tests/`. The old `run_tests.py`
   runner skipped `test_typer_cli.py` and `test_skill_commands.py`.
+- File collection is several times faster on large trees: include and
+  exclude patterns are compiled once, exclude patterns are checked only for
+  included files, overlapping `index_dirs` entries (such as `"."` and `"docs"`)
+  walk each subtree once, and a file listed twice is read once. The collected
+  file list is unchanged.
 
 ## [0.9.0] - 2026-10-10
 
