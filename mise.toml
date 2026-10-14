@@ -1,6 +1,5 @@
 [tools]
 gitleaks = "latest"
-claude = "latest"
 pre-commit = "latest"
 python = "3.13"
 sops = "latest"
