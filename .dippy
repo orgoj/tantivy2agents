@@ -1,8 +1,10 @@
 deny python * "use uv!!!"
 deny python3 * "use uv!!!"
 
-
-
+allow /usr/bin/time -f *
+allow hcom send @agent_review* *
+allow mise run *
+allow touch *
 allow uv run pytest *
 allow uv run python -m pytest *
 allow uv run python run_tests.py *
@@ -11,3 +13,4 @@ allow uv run python tests/** *
 allow uv run run_tests.py
 allow uv run scripts/bump_version.py *
 allow uv run tantivy2agents *
+allow uv run tmp/* *
