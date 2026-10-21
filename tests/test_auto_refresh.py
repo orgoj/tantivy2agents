@@ -387,6 +387,28 @@ def test_permission_denied_directory_is_skipped(project, capsys, caplog):
     assert search_paths(agent, "betaword", capsys) == ["docs/nested/beta.md"]
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permissions enforced for the current user",
+)
+def test_unreadable_file_does_not_block_other_files(project, capsys):
+    agent, _spy = new_agent()
+    search_paths(agent, "alphaword", capsys)
+    locked = write(project, "docs/locked.md", "# Locked\n\nlockedword\n")
+    os.chmod(locked, 0)
+    try:
+        write(project, "docs/gamma.md", "# Gamma\n\ngammaword\n")
+        alpha = write(project, "docs/alpha.md", "# Alpha\n\nnewalphaword\n")
+        bump_mtime(alpha)
+        assert search_paths(agent, "gammaword", capsys) == ["docs/gamma.md"]
+        assert search_paths(agent, "newalphaword", capsys) == ["docs/alpha.md"]
+        assert search_paths(agent, "lockedword", capsys) == []
+    finally:
+        os.chmod(locked, 0o644)
+
+    assert search_paths(agent, "lockedword", capsys) == ["docs/locked.md"]
+
+
 @pytest.mark.parametrize("failing_call", ["walk", "stat"])
 def test_permission_error_in_scan_is_skipped(
     project, capsys, monkeypatch, failing_call
