@@ -257,7 +257,9 @@ servers: [s8, s9]
 - Check index status: `tantivy2agents status`
 - `search` refreshes missing or stale indexes automatically
 - A stderr warning `Index not refreshed: file scan incomplete` means some
-  file or directory could not be read; fix its permissions
+  file or directory hit an I/O error; the previous index stays in use
+- `Skipped (permission denied): <path>` means that path is left out of the
+  index; exclude it in `index_dirs` to silence the warning
 - Force a manual rebuild with `tantivy2agents index --force` if needed
 
 ## Getting More Help

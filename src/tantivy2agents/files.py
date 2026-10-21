@@ -239,10 +239,13 @@ class ScanResult:
     absolute path, ``st_mtime_ns`` and ``st_size``. ``errors`` lists what could
     not be walked or stat'ed; a scan with errors must not be used to delete
     documents, because a missing entry may just be unreadable for a moment.
+    ``skipped`` lists paths denied by permissions: they are treated as
+    excluded, so one foreign-owned directory does not freeze the index.
     """
 
     entries: dict[str, tuple[str, int, int]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
 
     @property
     def complete(self) -> bool:
@@ -258,7 +261,9 @@ def scan_candidates(config: dict[str, Any], project_root: str) -> ScanResult:
 
     def on_walk_error(error: OSError) -> None:
         # A directory removed while walking is a normal removal.
-        if not isinstance(error, FileNotFoundError):
+        if isinstance(error, PermissionError):
+            result.skipped.append(str(error.filename))
+        elif not isinstance(error, FileNotFoundError):
             result.errors.append(f"{error.filename}: {error.strerror}")
 
     for file_path in _iter_candidates(config, project_root, onerror=on_walk_error):
@@ -267,7 +272,8 @@ def scan_candidates(config: dict[str, Any], project_root: str) -> ScanResult:
         except FileNotFoundError:
             continue
         except OSError as e:
-            result.errors.append(f"{file_path}: {e.strerror}")
+            e.filename = file_path
+            on_walk_error(e)
             continue
         key = to_index_path(os.path.relpath(file_path, project_root))
         result.entries[key] = (file_path, st.st_mtime_ns, st.st_size)

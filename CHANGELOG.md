@@ -2,6 +2,16 @@
 
 All notable project changes are tracked here.
 
+## [Unreleased]
+
+### Fixed
+- A path the scan cannot enter because of permissions (for example a
+  container data directory owned by another user) is skipped like an excluded
+  path instead of freezing the index at "Index kept: the file scan was
+  incomplete". Its documents are dropped and a `Skipped (permission denied)`
+  warning goes to stderr when the index changes. Other I/O errors still keep
+  the previous index.
+
 ## [0.10.0] - 2026-10-11
 
 ### Added

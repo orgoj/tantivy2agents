@@ -3,6 +3,7 @@
 Automatic refresh: search notices file changes without any hook.
 """
 
+import errno
 import json
 import os
 import sys
@@ -330,7 +331,7 @@ def test_stat_failure_keeps_old_index(project, capsys, monkeypatch):
 
     def failing_stat(path, *args, **kwargs):
         if os.fspath(path) == beta:
-            raise PermissionError(13, "Permission denied", beta)
+            raise OSError(errno.EIO, "Input/output error", beta)
         return real_stat(path, *args, **kwargs)
 
     monkeypatch.setattr(files_module.os, "stat", failing_stat)
@@ -350,12 +351,104 @@ def test_walk_error_keeps_old_index(project, capsys, monkeypatch):
         for root, dirs, filenames in real_walk(top, *args, **kwargs):
             if "nested" in dirs and onerror is not None:
                 dirs.remove("nested")
-                onerror(PermissionError(13, "Permission denied", "nested"))
+                onerror(OSError(errno.EIO, "Input/output error", "nested"))
             yield root, dirs, filenames
 
     monkeypatch.setattr(files_module.os, "walk", failing_walk)
     assert search_paths(agent, "betaword", capsys) == ["docs/nested/beta.md"]
     assert spy.last == "kept"
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permissions enforced for the current user",
+)
+def test_permission_denied_directory_is_skipped(project, capsys, caplog):
+    """A foreign-owned directory must not freeze the index (Docker data dirs)."""
+    agent, spy = new_agent()
+    search_paths(agent, "betaword", capsys)
+    write(project, "docs/gamma.md", "# Gamma\n\ngammaword\n")
+    locked = os.path.join(project, "docs", "nested")
+    os.chmod(locked, 0)
+    try:
+        assert search_paths(agent, "gammaword", capsys) == ["docs/gamma.md"]
+        assert spy.last == "updated"
+        assert search_paths(agent, "betaword", capsys) == []
+        assert "Skipped (permission denied)" in caplog.text
+
+        # Unchanged files and a still-locked directory: no churn, no warning.
+        caplog.clear()
+        assert search_paths(agent, "alphaword", capsys) == ["docs/alpha.md"]
+        assert spy.last == "fresh"
+        assert "Skipped" not in caplog.text
+    finally:
+        os.chmod(locked, 0o755)
+
+    assert search_paths(agent, "betaword", capsys) == ["docs/nested/beta.md"]
+
+
+@pytest.mark.parametrize("failing_call", ["walk", "stat"])
+def test_permission_error_in_scan_is_skipped(
+    project, capsys, monkeypatch, failing_call
+):
+    agent, spy = new_agent()
+    search_paths(agent, "betaword", capsys)
+    nested = os.path.join(project, "docs", "nested")
+    beta = os.path.join(nested, "beta.md")
+
+    if failing_call == "walk":
+        real_walk = os.walk
+
+        def failing_walk(top, *args, onerror=None, **kwargs):
+            for root, dirs, filenames in real_walk(top, *args, **kwargs):
+                if "nested" in dirs and onerror is not None:
+                    dirs.remove("nested")
+                    onerror(PermissionError(13, "Permission denied", nested))
+                yield root, dirs, filenames
+
+        monkeypatch.setattr(files_module.os, "walk", failing_walk)
+    else:
+        failing_stat_for(monkeypatch, beta, errno.EACCES)
+
+    assert search_paths(agent, "betaword", capsys) == []
+    assert spy.last == "updated"
+    assert search_paths(agent, "alphaword", capsys) == ["docs/alpha.md"]
+
+
+@pytest.mark.parametrize("denied_call", [1, 2])
+def test_skipped_warning_follows_the_published_scan(
+    project, capsys, caplog, monkeypatch, denied_call
+):
+    """The warning matches the scan whose result was published."""
+    agent, spy = new_agent()
+    search_paths(agent, "betaword", capsys)
+    write(project, "docs/gamma.md", "# Gamma\n\ngammaword\n")
+    nested = os.path.join(project, "docs", "nested")
+
+    real_scan = agent_module.scan_candidates
+    calls = []
+
+    def sequenced_scan(config, project_root):
+        result = real_scan(config, project_root)
+        calls.append(None)
+        # Call 1 only, or every call from the first rescan on.
+        if len(calls) == 1 if denied_call == 1 else len(calls) >= 2:
+            result.entries.pop("docs/nested/beta.md")
+            result.skipped.append(nested)
+        return result
+
+    monkeypatch.setattr(agent_module, "scan_candidates", sequenced_scan)
+    assert search_paths(agent, "gammaword", capsys) == ["docs/gamma.md"]
+    assert spy.last == "updated"
+    beta_found = search_paths(agent, "betaword", capsys) == ["docs/nested/beta.md"]
+    if denied_call == 1:
+        # Denied first, readable on the rescan: beta stays, nothing to report.
+        assert beta_found
+        assert "Skipped" not in caplog.text
+    else:
+        # Readable first, denied on the rescan that gets published.
+        assert not beta_found
+        assert "Skipped (permission denied)" in caplog.text
 
 
 def test_vanished_directory_is_a_normal_removal(project, capsys, monkeypatch):
@@ -375,7 +468,9 @@ def test_vanished_directory_is_a_normal_removal(project, capsys, monkeypatch):
     assert spy.last == "updated"
 
 
-def test_failure_between_publish_and_index_info_stays_consistent(project, capsys):
+def test_failure_between_publish_and_index_info_stays_consistent(
+    project, capsys, caplog, monkeypatch
+):
     agent, _spy = new_agent()
     search_paths(agent, "alphaword", capsys)
     write(project, "docs/gamma.md", "# Gamma\n\ngammaword\n")
@@ -383,9 +478,20 @@ def test_failure_between_publish_and_index_info_stays_consistent(project, capsys
     def broken_index_info(*args, **kwargs):
         raise OSError("simulated crash after publish")
 
+    real_scan = agent_module.scan_candidates
+
+    def scan_with_skipped(config, project_root):
+        result = real_scan(config, project_root)
+        result.skipped.append(os.path.join(project, "locked"))
+        return result
+
     agent._write_index_info = broken_index_info
+    monkeypatch.setattr(agent_module, "scan_candidates", scan_with_skipped)
     with pytest.raises(OSError):
         agent.search_command("gammaword")
+    # The published index already left the path out.
+    assert "Skipped (permission denied)" in caplog.text
+    monkeypatch.setattr(agent_module, "scan_candidates", real_scan)
 
     assert read_index_info(project)["count"] == 2
 
@@ -511,12 +617,13 @@ def test_file_unreadable_on_first_build_is_retried(project, capsys, monkeypatch)
     assert search_paths(agent, "alphaword", capsys) == ["docs/alpha.md"]
 
 
-def failing_stat_for(monkeypatch, failing_path):
+def failing_stat_for(monkeypatch, failing_path, code=errno.EIO):
     real_stat = os.stat
 
     def failing_stat(path, *args, **kwargs):
         if os.path.normpath(os.fspath(path)) == os.path.normpath(failing_path):
-            raise PermissionError(13, "Permission denied", failing_path)
+            # OSError picks the subclass, e.g. PermissionError for EACCES.
+            raise OSError(code, os.strerror(code), failing_path)
         return real_stat(path, *args, **kwargs)
 
     monkeypatch.setattr(files_module.os, "stat", failing_stat)
@@ -567,7 +674,7 @@ def test_inaccessible_wildcard_path_keeps_old_index(
 
     def failing_os_call(path=".", *args, **kwargs):
         if os.path.normpath(os.fspath(path)) == failing:
-            raise PermissionError(13, "Permission denied", failing)
+            raise OSError(errno.EIO, "Input/output error", failing)
         return real_call(path, *args, **kwargs)
 
     monkeypatch.setattr(files_module.os, failing_call, failing_os_call)

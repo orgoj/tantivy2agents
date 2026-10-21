@@ -50,9 +50,10 @@ The current implementation already matches the core purpose in several ways:
 - `search` and `index` compare a manifest published inside `idx/`
   (`t2a_state.json`: size and mtime of every candidate file plus a config
   fingerprint) with the files on disk, re-index only what changed, and rebuild
-  fully after config changes or a missing/unusable index. If the file scan
-  hits a permission or I/O error, the previous index is kept and a warning is
-  printed to stderr;
+  fully after config changes or a missing/unusable index. Paths denied by
+  permissions are skipped like excluded ones, with a stderr warning when the
+  index changes; if the file scan hits another I/O error, the previous index
+  is kept and a warning is printed to stderr;
 - Markdown frontmatter can improve ranking and filtering;
 - Czech text normalization helps local documentation written in Czech;
 - packaged `skill-usage` and `skill-setup` commands make the installed tool

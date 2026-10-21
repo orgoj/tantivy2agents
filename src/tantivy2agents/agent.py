@@ -783,6 +783,16 @@ class TantivyAgent:
 
         return self._build_and_publish(data_dir, index_dir, scan, None)
 
+    @staticmethod
+    def _report_skipped(scan: ScanResult) -> None:
+        for path in scan.skipped[:MAX_REPORTED_SCAN_ERRORS]:
+            logger.warning("Skipped (permission denied): %s", path)
+        if len(scan.skipped) > MAX_REPORTED_SCAN_ERRORS:
+            logger.warning(
+                "Skipped %d more unreadable paths",
+                len(scan.skipped) - MAX_REPORTED_SCAN_ERRORS,
+            )
+
     def _build_and_publish(
         self,
         data_dir: str,
@@ -826,6 +836,8 @@ class TantivyAgent:
                     break
                 removed, refresh = self._diff_manifest(manifest, rescan.entries)
                 if not removed and not refresh:
+                    # Same entries; keep its skipped paths for the report.
+                    scan = rescan
                     break
                 scan = rescan
 
@@ -839,6 +851,9 @@ class TantivyAgent:
                 },
             )
             self._publish_index(build_dir, index_dir)
+            # Reported from the scan that was published, only when the index
+            # changes, and before anything after the publish can fail.
+            self._report_skipped(scan)
         finally:
             shutil.rmtree(build_dir, ignore_errors=True)
 
