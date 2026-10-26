@@ -299,7 +299,7 @@ areas are tracked in `TODO.md`; keep new fixes covered by permanent tests.
 
 - `CHANGELOG.md`: released changes.
 - `TODO.md`: open work only.
-- `CLAUDE.md`: project-specific agent/development rules.
+- `AGENTS.md`: project-specific agent/development rules.
 - `src/tantivy2agents/skills/*/SKILL.md`: packaged CLI help documents.
 
 ## License
