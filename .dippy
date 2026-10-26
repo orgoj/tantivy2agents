@@ -2,7 +2,6 @@ deny python * "use uv!!!"
 deny python3 * "use uv!!!"
 
 allow /usr/bin/time -f *
-allow hcom send @agent_review* *
 allow mise run *
 allow touch *
 allow uv run pytest *
