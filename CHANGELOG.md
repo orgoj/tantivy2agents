@@ -4,6 +4,8 @@ All notable project changes are tracked here.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-08
+
 ### Fixed
 - A path the scan cannot enter because of permissions (for example a
   container data directory owned by another user) is skipped like an excluded
