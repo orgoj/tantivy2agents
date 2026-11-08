@@ -13,4 +13,4 @@ allow uv run python tests/** *
 allow uv run run_tests.py
 allow uv run scripts/bump_version.py *
 allow uv run tantivy2agents *
-allow uv run tmp/* *
+ask uv run tmp/* * "One-off script: the user approves it"
