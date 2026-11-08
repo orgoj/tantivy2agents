@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import shutil
+import sqlite3
 import time
 import uuid
 from dataclasses import dataclass
@@ -40,6 +41,7 @@ from .files import (
     scan_candidates,
 )
 from .locking import LOCK_FILENAME, IndexLock
+from . import vectors as vectors_module
 from .usage import USAGE_FILENAMES, UsageLog, new_search_id
 from .paths import (
     find_project_root,
@@ -140,6 +142,7 @@ class TantivyAgent:
             self.project_root, ".tantivy2agents.json"
         )
         self.config = self._load_config()
+        self.embeddings = vectors_module.embedding_config(self.config)
         self._lock: Optional[IndexLock] = None
 
     @property
@@ -749,13 +752,22 @@ class TantivyAgent:
                 return
 
     def _refresh_index_locked(
-        self, data_dir: str, index_dir: str, force: bool = False
+        self,
+        data_dir: str,
+        index_dir: str,
+        force: bool = False,
+        vectors_online: bool = False,
     ) -> RefreshResult:
         """Bring the index in line with the files on disk.
 
         Must be called while holding the write lock. Unchanged files cost one
         stat each; changed files are re-indexed into a copy of the live index
         when possible and the whole index is rebuilt otherwise.
+
+        With embeddings configured, changed files get new chunks; the server
+        is asked for their vectors only when ``vectors_online`` is set, so a
+        plain BM25 search never waits for it. Missing vectors are filled on a
+        later online refresh even when no file changed.
         """
         self._recover_retired_index(data_dir, index_dir)
         self._cleanup_stale_index_dirs(data_dir)
@@ -776,12 +788,20 @@ class TantivyAgent:
         if state is not None and not force:
             removed, refresh = self._diff_manifest(state["manifest"], scan.entries)
             if not removed and not refresh:
+                if vectors_online and self._vectors_need_work(
+                    index_dir, state["manifest"]
+                ):
+                    return self._build_and_publish(
+                        data_dir, index_dir, scan, state, vectors_online
+                    )
                 count = self._repair_index_info(data_dir, state["manifest"], scan)
                 return RefreshResult("fresh", count)
             if self._incremental_allowed():
-                return self._build_and_publish(data_dir, index_dir, scan, state)
+                return self._build_and_publish(
+                    data_dir, index_dir, scan, state, vectors_online
+                )
 
-        return self._build_and_publish(data_dir, index_dir, scan, None)
+        return self._build_and_publish(data_dir, index_dir, scan, None, vectors_online)
 
     @staticmethod
     def _report_skipped(scan: ScanResult) -> None:
@@ -799,6 +819,7 @@ class TantivyAgent:
         index_dir: str,
         scan: ScanResult,
         state: Optional[dict],
+        vectors_online: bool = False,
     ) -> RefreshResult:
         """Build beside the live index, then swap it in with one rename.
 
@@ -826,8 +847,11 @@ class TantivyAgent:
             # Without raw paths a repeated round could duplicate documents.
             rounds = MAX_REFRESH_ROUNDS if self._incremental_allowed() else 1
             changed = 0
+            # Documents written in this build, None for removed ones; the
+            # vector store follows them.
+            docs: dict = {}
             for round_number in range(1, rounds + 1):
-                self._apply_changes(build_dir, scan, manifest, removed, refresh)
+                self._apply_changes(build_dir, scan, manifest, removed, refresh, docs)
                 changed += len(removed) + len(refresh)
                 if round_number == rounds:
                     break
@@ -841,6 +865,16 @@ class TantivyAgent:
                     break
                 scan = rescan
 
+            if self.embeddings is not None:
+                self._sync_vectors(
+                    build_dir,
+                    index_dir,
+                    manifest,
+                    docs,
+                    incremental,
+                    vectors_online,
+                    scan,
+                )
             count = self._count_documents(build_dir)
             self._write_json_atomic(
                 os.path.join(build_dir, INDEX_STATE_FILENAME),
@@ -908,6 +942,7 @@ class TantivyAgent:
         manifest: dict,
         removed: list[str],
         refresh: list[str],
+        docs: Optional[dict] = None,
     ) -> None:
         """Delete and re-add documents in ``build_dir``; update ``manifest``.
 
@@ -924,6 +959,8 @@ class TantivyAgent:
             for key in removed:
                 writer.delete_documents_by_term("path", key)
                 manifest.pop(key, None)
+                if docs is not None:
+                    docs[key] = None
             for key in refresh:
                 file_path, mtime_ns, size = scan.entries[key]
                 try:
@@ -936,6 +973,8 @@ class TantivyAgent:
                 writer.delete_documents_by_term("path", key)
                 if doc:
                     writer.add_document(tantivy.Document(**doc))
+                if docs is not None:
+                    docs[key] = doc or None
                 # The stat was taken before the read, so an edit racing this
                 # read shows up as a difference on the next scan.
                 manifest[key] = [mtime_ns, size, doc is not None]
@@ -947,6 +986,90 @@ class TantivyAgent:
         finally:
             del writer
             del index
+
+    @staticmethod
+    def _raw_title(doc: dict) -> str:
+        """Display title from the raw body: first H1, else the file name."""
+        for line in (doc.get("snippet") or "").splitlines():
+            if line.startswith("# "):
+                return line[2:].strip()
+        return os.path.basename(doc.get("path") or "")
+
+    def _chunks(self, doc: dict) -> list:
+        return vectors_module.chunk_document(
+            self.embeddings, self._raw_title(doc), doc.get("snippet") or ""
+        )
+
+    def _sync_vectors(
+        self,
+        build_dir: str,
+        index_dir: str,
+        manifest: dict,
+        docs: dict,
+        incremental: bool,
+        online: bool,
+        scan: Optional[ScanResult] = None,
+    ) -> None:
+        """Bring ``build_dir``'s vector store in line with its documents.
+
+        A full rebuild starts from a copy of the live store so unchanged chunk
+        text keeps its vectors. Indexed files the store never saw (embeddings
+        enabled later) are read again and chunked. The server is called only
+        when ``online``; chunks without vectors are retried later.
+        """
+        store_path = os.path.join(build_dir, vectors_module.VECTORS_FILENAME)
+        live_path = os.path.join(index_dir, vectors_module.VECTORS_FILENAME)
+        if not incremental and os.path.exists(live_path):
+            shutil.copy2(live_path, store_path)
+        try:
+            store = vectors_module.VectorStore(store_path, self.embeddings)
+        except sqlite3.DatabaseError as e:
+            logger.warning("Vector store unreadable, starting a new one: %s", e)
+            os.remove(store_path)
+            store = vectors_module.VectorStore(store_path, self.embeddings)
+        with store:
+            if not incremental:
+                written = {key for key, doc in docs.items() if doc}
+                store.remove(store.paths() - written)
+            for key, doc in docs.items():
+                if doc is None:
+                    store.remove([key])
+                else:
+                    store.replace(key, self._chunks(doc))
+            known = store.paths()
+            for key, (_mtime, _size, indexed) in manifest.items():
+                if not indexed or key in known or key in docs:
+                    continue
+                entry = scan.entries.get(key) if scan else None
+                file_path = entry[0] if entry else os.path.join(self.project_root, key)
+                try:
+                    doc = self._load_document(file_path)
+                except DocumentReadError as e:
+                    logger.warning("Cannot read %s for vectors: %s", file_path, e)
+                    continue
+                if doc:
+                    store.replace(key, self._chunks(doc))
+            store.commit()
+            if online and store.pending():
+                store.fill()
+
+    def _vectors_need_work(self, index_dir: str, manifest: dict) -> bool:
+        """Read-only check: the live store lacks files, vectors or settings."""
+        if self.embeddings is None:
+            return False
+        indexed = {key for key, value in manifest.items() if value[2]}
+        path = os.path.join(index_dir, vectors_module.VECTORS_FILENAME)
+        if not os.path.exists(path):
+            return bool(indexed)
+        try:
+            with vectors_module.VectorStore(
+                path, self.embeddings, readonly=True
+            ) as store:
+                if not store.current:
+                    return True
+                return store.pending() > 0 or not indexed <= store.paths()
+        except sqlite3.Error:
+            return True
 
     @staticmethod
     def _count_documents(index_dir: str) -> int:
@@ -991,7 +1114,9 @@ class TantivyAgent:
         if show_dirs or show_files:
             self._get_files_for_indexing(show_dirs, show_files)
 
-        result = self._refresh_index_locked(data_dir, index_dir, force=force)
+        result = self._refresh_index_locked(
+            data_dir, index_dir, force=force, vectors_online=True
+        )
 
         if result.action == "fresh":
             print("Index is up to date")
@@ -1016,6 +1141,7 @@ class TantivyAgent:
         output_file: Optional[str] = None,
         allow_outside_output: bool = False,
         show_snippets: bool = False,
+        mode: str = "bm25",
     ) -> None:
         """Search in indexed documents"""
         if not query:
@@ -1031,16 +1157,35 @@ class TantivyAgent:
 
         limit = limit or self.config["search"]["default_limit"]
 
+        # The server is asked before the lock is taken, so a slow or missing
+        # server never holds up other searches.
+        query_vector = None
+        if mode == "hybrid":
+            if self.embeddings is None:
+                raise ValidationError(
+                    message="--mode hybrid needs an 'embeddings' config section",
+                    parameter="--mode",
+                    got=mode,
+                    expected="bm25, or an embeddings section in the config",
+                )
+            vectors_module.require_sqlite_vec()
+            try:
+                query_vector = vectors_module.embed_query(self.embeddings, query)
+            except vectors_module.EmbeddingError as e:
+                logger.warning("Hybrid search unavailable, using BM25 only: %s", e)
+
         # One lock transaction covers the refresh and the query, so a
         # concurrent clear or rebuild cannot slip in between them. Every
         # tantivy handle is confined to the helpers and dies before the lock
         # is released: Windows refuses to rename or delete a directory that
         # any process still holds open.
         with self.index_lock.acquire():
-            self._ensure_search_index(data_dir, index_dir)
+            self._ensure_search_index(
+                data_dir, index_dir, vectors_online=query_vector is not None
+            )
             try:
                 had_hits, unique_results = self._collect_search_results(
-                    index_dir, query, limit
+                    index_dir, query, limit, query_vector
                 )
             except (OSError, ValueError, RuntimeError) as e:
                 raise IndexNotFoundError(index_dir=index_dir) from e
@@ -1091,12 +1236,21 @@ class TantivyAgent:
         }
         return search_id if usage.append(record) else None
 
-    def _collect_search_results(self, index_dir: str, query: str, limit: int):
+    def _collect_search_results(
+        self,
+        index_dir: str,
+        query: str,
+        limit: int,
+        query_vector: Optional[list] = None,
+    ):
         """Run the query and return (had_hits, filtered results).
 
         All tantivy objects stay local to this call so they are released as
         soon as it returns, while the caller still holds the index lock.
+        With ``query_vector`` the BM25 and vector rankings are fused per path.
         """
+        if query_vector is not None:
+            return self._collect_hybrid_results(index_dir, query, limit, query_vector)
         index = tantivy.Index.open(index_dir)
         searcher = index.searcher()
 
@@ -1124,7 +1278,69 @@ class TantivyAgent:
         filtered_results = self._apply_filters(results_with_docs, query)
         return True, self._deduplicate_results_by_path(filtered_results)
 
-    def _ensure_search_index(self, data_dir: str, index_dir: str) -> None:
+    def _vector_ranking(self, index_dir: str, query_vector: list, limit: int):
+        """Paths ranked by their best chunk, or None when vectors are unusable."""
+        path = os.path.join(index_dir, vectors_module.VECTORS_FILENAME)
+        if not os.path.exists(path):
+            logger.warning("No vectors indexed yet, using BM25 only")
+            return None
+        try:
+            with vectors_module.VectorStore(
+                path, self.embeddings, readonly=True
+            ) as store:
+                if not store.current:
+                    logger.warning("Vectors are from other settings, using BM25 only")
+                    return None
+                hits = store.search(query_vector, limit)
+        except sqlite3.Error as e:
+            logger.warning("Vector search failed, using BM25 only: %s", e)
+            return None
+        return [p for p, _section in vectors_module.best_by_path(hits)]
+
+    def _collect_hybrid_results(
+        self, index_dir: str, query: str, limit: int, query_vector: list
+    ):
+        """Fuse BM25 and vector rankings with Reciprocal Rank Fusion."""
+        index = tantivy.Index.open(index_dir)
+        searcher = index.searcher()
+        search_limit = self._candidate_limit(limit)
+        query_parser = index.parse_query(normalize_czech_text(query), None)
+        bm25 = self._deduplicate_results_by_path(
+            [
+                (score, address, searcher.doc(address))
+                for score, address in searcher.search(query_parser, search_limit).hits
+            ]
+        )
+        vector_paths = self._vector_ranking(index_dir, query_vector, search_limit)
+        if vector_paths is None:
+            if not bm25:
+                return False, []
+            return True, self._apply_filters(bm25, query)
+
+        by_path = {
+            doc["path"][0]: (address, doc) for _s, address, doc in bm25 if doc["path"]
+        }
+        fused = vectors_module.rrf_fuse(
+            [[doc["path"][0] for _s, _a, doc in bm25 if doc["path"]], vector_paths],
+            self.embeddings.rrf_k,
+        )
+        results = []
+        for path, score in fused:
+            found = by_path.get(path)
+            if found is None:
+                term = tantivy.Query.term_query(index.schema, "path", path)
+                hits = searcher.search(term, 1).hits
+                if not hits:
+                    continue  # vectors of a file no longer in the index
+                found = (hits[0][1], searcher.doc(hits[0][1]))
+            results.append((score, found[0], found[1]))
+        if not results:
+            return False, []
+        return True, self._apply_filters(results, query)
+
+    def _ensure_search_index(
+        self, data_dir: str, index_dir: str, vectors_online: bool = False
+    ) -> None:
         """Refresh the index from the files on disk before every search.
 
         No hook is needed: the check stats every candidate file under the
@@ -1132,7 +1348,9 @@ class TantivyAgent:
         and the others find the index it published already current.
         """
         with self.index_lock.acquire():
-            self._refresh_index_locked(data_dir, index_dir)
+            self._refresh_index_locked(
+                data_dir, index_dir, vectors_online=vectors_online
+            )
 
         if not os.path.exists(index_dir):
             raise IndexNotFoundError(index_dir=index_dir)

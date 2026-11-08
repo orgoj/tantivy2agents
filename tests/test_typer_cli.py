@@ -58,6 +58,7 @@ class StubAgent:
     """Test double for command plumbing that should not touch an index."""
 
     calls = []
+    modes = []
 
     def __init__(self, config_path=None, verbose=False, quiet=False):
         self.config_path = config_path
@@ -73,6 +74,7 @@ class StubAgent:
         output,
         allow_outside_output=False,
         show_snippets=False,
+        mode="bm25",
     ):
         StubAgent.calls.append(
             (
@@ -85,6 +87,7 @@ class StubAgent:
                 show_snippets,
             )
         )
+        StubAgent.modes.append(mode)
         print(f"searched {query} as {output_format}")
 
     def status_command(self):
@@ -110,6 +113,7 @@ def stub_agent(monkeypatch):
     from tantivy2agents import cli
 
     StubAgent.calls = []
+    StubAgent.modes = []
     monkeypatch.setattr(cli, "TantivyAgent", StubAgent)
     return StubAgent
 
@@ -226,6 +230,13 @@ def test_search_snippets_option_dispatches_to_agent(stub_agent):
     result = runner.invoke(app, ["search", "test", "--snippets"])
     assert result.exit_code == 0
     assert ("search", "test", None, "text", None, False, True) in stub_agent.calls
+
+
+def test_search_mode_defaults_to_bm25_and_accepts_hybrid(stub_agent):
+    assert runner.invoke(app, ["search", "test"]).exit_code == 0
+    assert runner.invoke(app, ["search", "test", "--mode", "hybrid"]).exit_code == 0
+    assert runner.invoke(app, ["search", "test", "--mode", "dense"]).exit_code != 0
+    assert stub_agent.modes == ["bm25", "hybrid"]
 
 
 def test_format_enum_validation():

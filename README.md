@@ -248,6 +248,42 @@ Useful fields:
 
 Run `tantivy2agents config-example` for the full template.
 
+### Hybrid Search (experimental)
+
+`search --mode hybrid` fuses the BM25 ranking with vector similarity
+(Reciprocal Rank Fusion per file), so a query in one language can find a
+document written in another. Vectors come from an external OpenAI-compatible
+`/v1/embeddings` server, for example `llama-server --embeddings` or Ollama;
+tantivy2agents runs no model itself. Install the extra
+(`uv tool install "tantivy2agents[hybrid]"`, which adds `sqlite-vec`) and add:
+
+```json
+"embeddings": {
+  "url": "http://127.0.0.1:8080/v1/embeddings",
+  "model": "embeddinggemma",
+  "dimensions": 256
+}
+```
+
+Optional keys: `query_template` (default `task: search result | query:
+{query}`), `document_template` (default `title: {title} | text: {content}`),
+`timeout` (indexing, default `30`), `search_timeout` (default `3`),
+`batch_size` (`32`), `max_chunk_chars` (`4000`), `rrf_k` (`60`) and
+`api_key_env` (name of an environment variable holding a bearer token). The
+templates suit EmbeddingGemma; other models need their own. A hosted URL sends
+the indexed content to that service.
+
+Each Markdown section becomes one vector, stored in `idx/vectors.sqlite` and
+published together with the BM25 index. `index` embeds new and changed
+sections; `search --mode hybrid` does the same before searching. Plain `bm25`
+searches never call the server; their new sections wait for the next hybrid
+search or `index`. Unchanged section text keeps its vector, and a change of
+model, dimensions or templates re-embeds the stored text without rebuilding
+the BM25 index. When the server is unreachable, hybrid search warns on stderr
+and returns BM25 results. Only hybrid search needs `sqlite-vec`; indexing
+and BM25 search keep working without it. Run `index` once after enabling embeddings: the
+first embedding of a large repository holds the index lock while it runs.
+
 For server-management repositories, keep the project-specific knowledge in
 committed files and tune `.tantivy2agents.json` to that layout. Typical include
 paths are `guides/`, `runbooks/`, `servers/`, `playbooks/`, and project-specific

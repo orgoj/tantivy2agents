@@ -80,6 +80,7 @@ tantivy2agents search "query" --format csv
 tantivy2agents search "query" --format text
 tantivy2agents search "query" --limit 5    # Limit results
 tantivy2agents search "query" --snippets   # Include matched content snippet
+tantivy2agents search "query" --mode hybrid  # BM25 + vectors, if the project configures embeddings
 tantivy2agents search "query" -o out.json  # Save to file
 tantivy2agents search "query" -o /tmp/out.json --allow-outside-output
 ```

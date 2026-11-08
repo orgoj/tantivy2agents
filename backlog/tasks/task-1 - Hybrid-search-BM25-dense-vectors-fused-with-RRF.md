@@ -4,7 +4,7 @@ title: 'Hybrid search: BM25 + dense vectors fused with RRF'
 status: Idea
 assignee: []
 created_date: '2026-11-08T09:34:00Z'
-updated_date: '2026-11-08T10:39:00Z'
+updated_date: '2026-11-08T10:58:00Z'
 labels: []
 dependencies: []
 type: feature
@@ -44,4 +44,8 @@ Review points to settle when specifying:
 - Fusion granularity: BM25 ranks files; aggregate chunk ranks per path (best chunk), fuse with RRF per path, use the best chunk for section/snippet output.
 - Fallback warning goes to stderr only; JSON on stdout stays valid.
 - Fingerprint: model, dimensions and prefixes, not the URL (same model on another host must not re-embed). Bump INDEX_STATE_FORMAT if BM25 documents change too.
+
+Model facts from the research report (not yet checked against the model card): Apache 2.0; GGUF in llama.cpp (ggml-org/embeddinggemma-2-GGUF), served via llama-server --embeddings or Ollama, both with /v1/embeddings; 8192-token input; MRL 768/512/256/128, re-normalize after truncation. Prompts: query 'task: search result | query: {query}', document 'title: {title} | text: {content}' ('title: none' without a title); code retrieval query 'task: code retrieval | query: {query}'. So the config needs query/document templates with {title}/{content}, not fixed prefixes. Alternative worth testing: BAAI/bge-m3 (also has sparse lexical weights, which /v1/embeddings does not return).
+
+Vector storage research (tmp report, summarized): candidates that fit: sqlite-vec (<2 MB, stdlib sqlite3, metadata in the same table, SQL delete/insert per file, flat scan ~15-35 ms at 100k x 256, v0.1.x), usearch (~2 MB, mmap view, HNSW <1 ms, no metadata storage, tombstones on delete), numpy flat file (baseline). Disqualified as too heavy or slow to import: LanceDB, Chroma, DuckDB+vss, Qdrant local, faiss-cpu (Windows packaging). Parallel writes are not an issue here: locking.py takes one exclusive lock for every refresh and every search, so writers and readers never overlap and handles close inside the lock (no Windows rename problem). Keep the vector file inside idx/ so Tantivy and vectors are always published together. To verify: sqlite extension loading in the uv-managed Python on all three OSes, usearch dependencies (numpy?), real latency at 100k.
 <!-- SECTION:NOTES:END -->

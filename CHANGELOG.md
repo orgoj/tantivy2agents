@@ -12,6 +12,13 @@ All notable project changes are tracked here.
   warning goes to stderr when the index changes. Other I/O errors still keep
   the previous index.
 
+### Added
+- Experimental hybrid search: `search --mode hybrid` fuses BM25 with vector
+  similarity from an external `/v1/embeddings` server (RRF per file). Vectors
+  per Markdown section live in `idx/vectors.sqlite` (`sqlite-vec`, optional
+  `hybrid` extra) and are refreshed incrementally with the index. Without an
+  `embeddings` config section nothing changes.
+
 ### Changed
 - Open work moved from `TODO.md` to Backlog.md tasks in `backlog/`; the
   repo-local `todo-roadmap-workflow` skill became `task-workflow`.

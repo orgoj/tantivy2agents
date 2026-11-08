@@ -50,6 +50,13 @@ class OutputFormat(str, Enum):
     text = "text"
 
 
+class SearchMode(str, Enum):
+    """Ranking: BM25 only, or BM25 fused with vector similarity."""
+
+    bm25 = "bm25"
+    hybrid = "hybrid"
+
+
 class OutlineFormat(str, Enum):
     """Output format options for outline and usage."""
 
@@ -115,6 +122,12 @@ def search(
         "--snippets",
         help="Include a short matching content snippet in search results",
     ),
+    mode: SearchMode = typer.Option(
+        SearchMode.bm25,
+        "--mode",
+        "-m",
+        help="bm25, or hybrid (BM25 + vectors; needs an 'embeddings' config)",
+    ),
     config: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file"
     ),
@@ -150,6 +163,7 @@ def search(
         output,
         allow_outside_output,
         show_snippets=snippets,
+        mode=mode.value,
     )
 
 
