@@ -146,9 +146,9 @@ class TantivyAgent:
         self.config = apply_user_config(self._load_config(), self.project_root)
         self.embeddings = vectors_module.embedding_config(self.config)
         self.default_mode = default_search_mode(self.config)
-        # Texts a locked refresh may send to the server (None: all) and the
-        # log level for hybrid fallbacks; search_command narrows both.
-        self._fill_limit: Optional[int] = None
+        # Vectors computed without the lock, applied by the next locked
+        # refresh; and the log level for hybrid fallbacks (search narrows it).
+        self._vector_supply: dict = {}
         self._hybrid_log = logger.warning
         self._lock: Optional[IndexLock] = None
 
@@ -778,6 +778,8 @@ class TantivyAgent:
         """
         self._recover_retired_index(data_dir, index_dir)
         self._cleanup_stale_index_dirs(data_dir)
+        with contextlib.suppress(OSError):
+            os.remove(os.path.join(data_dir, vectors_module.LEGACY_CACHE_FILENAME))
         scan = scan_candidates(self.config, self.project_root)
 
         index_usable = os.path.exists(index_dir) and self._index_can_open(index_dir)
@@ -1057,11 +1059,8 @@ class TantivyAgent:
                 if doc:
                     store.replace(key, self._chunks(doc))
             store.commit()
-            if online and store.pending():
-                with vectors_module.EmbeddingCache(
-                    os.path.dirname(index_dir), self.embeddings
-                ) as cache:
-                    store.fill(cache, self._fill_limit)
+            if online and self._vector_supply and store.pending():
+                store.apply(self._vector_supply)
 
     def _vectors_need_work(self, index_dir: str, manifest: dict, online: bool) -> bool:
         """Read-only check: the live store lacks files or settings, or (online
@@ -1112,40 +1111,58 @@ class TantivyAgent:
 
         The whole rebuild runs under the exclusive index lock so that parallel
         index/search processes wait instead of deleting each other's files.
-        With embeddings, the server is called between two locked refreshes,
-        so a long first embedding never blocks searches.
+        Vectors are refreshed the same way a hybrid search does it
+        (``_refresh_vectors``): the server is called without the lock.
         """
-        with self.index_lock.acquire():
-            self._index_locked(force, show_dirs, show_files)
-        if self.embeddings is not None:
-            self._index_vectors()
-
-    def _index_vectors(self) -> None:
         data_dir = os.path.join(self.project_root, self.config["index_dir"])
         index_dir = os.path.join(data_dir, "idx")
-        path = os.path.join(index_dir, vectors_module.VECTORS_FILENAME)
         with self.index_lock.acquire():
-            texts = {}
-            if os.path.exists(path):
-                with vectors_module.VectorStore(
-                    path, self.embeddings, readonly=True
-                ) as store:
-                    texts = store.pending_texts() if store.current else store.texts()
-        with vectors_module.EmbeddingCache(data_dir, self.embeddings) as cache:
-            missing = cache.prefill(texts, self.embeddings)
-        # Under the lock only cache hits are copied; anything new since the
-        # snapshot stays pending for the next index or hybrid search.
-        self._fill_limit = 0
-        try:
-            with self.index_lock.acquire():
-                self._refresh_index_locked(data_dir, index_dir, vectors_online=True)
-                pending = self._pending_vectors(index_dir)
-        finally:
-            self._fill_limit = None
-        if missing or pending:
+            self._index_locked(force, show_dirs, show_files)
+            texts = self._pending_texts(index_dir)
+        if self.embeddings is None:
+            return
+        self._refresh_vectors(data_dir, index_dir, texts)
+        with self.index_lock.acquire():
+            pending = self._pending_vectors(index_dir)
+        if pending:
             print(f"Vectors pending: {pending} sections (server unavailable?)")
         else:
             print("Vectors up to date")
+
+    def _pending_texts(self, index_dir: str) -> dict:
+        """Locked read: text of every published section without a vector."""
+        if self.embeddings is None:
+            return {}
+        path = os.path.join(index_dir, vectors_module.VECTORS_FILENAME)
+        if not os.path.exists(path):
+            return {}
+        try:
+            with vectors_module.VectorStore(
+                path, self.embeddings, readonly=True
+            ) as store:
+                return store.pending_texts() if store.current else {}
+        except sqlite3.Error:
+            return {}
+
+    def _refresh_vectors(self, data_dir: str, index_dir: str, texts: dict) -> bool:
+        """Embed ``texts`` without the lock, then publish them under it.
+
+        The one path that gives sections vectors, for ``index`` and for the
+        auto-refresh of a hybrid search. Sections changed in between stay
+        pending for the next refresh. Returns True when vectors were applied.
+        """
+        if not texts:
+            return False
+        vectors = vectors_module.embed_pending(self.embeddings, texts)
+        if not vectors:
+            return False
+        self._vector_supply = vectors
+        try:
+            with self.index_lock.acquire():
+                self._refresh_index_locked(data_dir, index_dir, vectors_online=True)
+        finally:
+            self._vector_supply = {}
+        return True
 
     def _pending_vectors(self, index_dir: str) -> int:
         path = os.path.join(index_dir, vectors_module.VECTORS_FILENAME)
@@ -1164,7 +1181,7 @@ class TantivyAgent:
         if show_dirs or show_files:
             self._get_files_for_indexing(show_dirs, show_files)
 
-        # Chunks are stored here; their vectors come in _index_vectors.
+        # Chunks are stored here; their vectors come in _refresh_vectors.
         result = self._refresh_index_locked(data_dir, index_dir, force=force)
 
         if result.action == "fresh":
@@ -1214,8 +1231,6 @@ class TantivyAgent:
         # A configured default stays silent when hybrid cannot run: the
         # caller asked for a search, not for a mode, and gets BM25 results.
         self._hybrid_log = logger.warning if explicit else logger.debug
-        if self.embeddings is not None:
-            self._fill_limit = self.embeddings.max_fill_per_search
         if mode == "hybrid" and (explicit or self.embeddings is not None):
             if self.embeddings is None:
                 raise ValidationError(
@@ -1234,15 +1249,23 @@ class TantivyAgent:
             except vectors_module.EmbeddingError as e:
                 self._hybrid_log("Hybrid search unavailable, using BM25 only: %s", e)
 
-        # One lock transaction covers the refresh and the query, so a
+        # Hybrid: refresh and read the sections without vectors, embed them
+        # without the lock (_refresh_vectors, the same path index uses).
+        texts: dict = {}
+        if query_vector is not None:
+            with self.index_lock.acquire():
+                self._ensure_search_index(data_dir, index_dir)
+                texts = self._pending_texts(index_dir)
+            self._refresh_vectors(data_dir, index_dir, texts)
+
+        # The refresh and the query share one lock transaction, so a
         # concurrent clear or rebuild cannot slip in between them. Every
         # tantivy handle is confined to the helpers and dies before the lock
         # is released: Windows refuses to rename or delete a directory that
         # any process still holds open.
         with self.index_lock.acquire():
-            self._ensure_search_index(
-                data_dir, index_dir, vectors_online=query_vector is not None
-            )
+            if query_vector is None or not os.path.exists(index_dir):
+                self._ensure_search_index(data_dir, index_dir)
             try:
                 had_hits, unique_results = self._collect_search_results(
                     index_dir, query, limit, query_vector

@@ -43,7 +43,6 @@ DEFAULTS = {
     "batch_size": 32,
     "max_chunk_chars": 4000,
     "rrf_k": 60,
-    "max_fill_per_search": 64,
     "api_key_env": None,
 }
 
@@ -71,7 +70,6 @@ class EmbeddingConfig:
     batch_size: int
     max_chunk_chars: int
     rrf_k: int
-    max_fill_per_search: int
     api_key_env: Optional[str]
 
     @property
@@ -104,7 +102,7 @@ def embedding_config(config: dict[str, Any]) -> Optional[EmbeddingConfig]:
     dims = values.get("dimensions")
     if type(dims) is not int or dims <= 0:
         raise ConfigError("'embeddings.dimensions' must be a positive integer")
-    for key in ("batch_size", "max_chunk_chars", "rrf_k", "max_fill_per_search"):
+    for key in ("batch_size", "max_chunk_chars", "rrf_k"):
         if type(values[key]) is not int or values[key] <= 0:
             raise ConfigError(f"'embeddings.{key}' must be a positive integer")
     for key in ("timeout", "search_timeout"):
@@ -125,7 +123,6 @@ def embedding_config(config: dict[str, Any]) -> Optional[EmbeddingConfig]:
         batch_size=values["batch_size"],
         max_chunk_chars=values["max_chunk_chars"],
         rrf_k=values["rrf_k"],
-        max_fill_per_search=values["max_fill_per_search"],
         api_key_env=values["api_key_env"],
     )
 
@@ -383,33 +380,15 @@ class VectorStore:
             ).fetchall()
         )
 
-    def fill(self, cache: Optional["EmbeddingCache"] = None, limit=None) -> int:
-        """Give pending chunks vectors; return how many are left.
+    def apply(self, vectors: dict[str, bytes]) -> int:
+        """Store vectors for pending chunks by text hash; return pending left.
 
-        Vectors already in ``cache`` cost nothing. At most ``limit`` texts
-        go to the server (None: all), so a search holding the index lock
-        stays short. Stops at the first server error and keeps what was
-        stored; the rest is retried later.
+        Never calls the server: vectors are computed beforehand without the
+        index lock (``embed_pending``).
         """
-        cfg = self.cfg
-        texts = self.pending_texts()
-        found = cache.get(texts) if cache else {}
-        todo = [h for h in texts if h not in found]
-        if limit is not None:
-            todo = todo[:limit]
-        try:
-            for start in range(0, len(todo), cfg.batch_size):
-                batch = todo[start : start + cfg.batch_size]
-                vectors = embed_texts(cfg, [texts[h] for h in batch], cfg.timeout)
-                packed = {h: _pack(v) for h, v in zip(batch, vectors)}
-                found.update(packed)
-                if cache:
-                    cache.put(packed)
-        except EmbeddingError as e:
-            logger.debug("Vectors not complete, will retry: %s", e)
         self.conn.executemany(
             "UPDATE chunks SET embedding = ? WHERE text_hash = ? AND embedding IS NULL",
-            [(blob, h) for h, blob in found.items()],
+            [(blob, h) for h, blob in vectors.items()],
         )
         self.conn.commit()
         return self.pending()
@@ -430,70 +409,27 @@ class VectorStore:
         ).fetchall()
 
 
-CACHE_FILENAME = "vectors-cache.sqlite"
+# Written by 0.12.0, which staged vectors there; a refresh deletes it.
+LEGACY_CACHE_FILENAME = "vectors-cache.sqlite"
 
 
-class EmbeddingCache:
-    """Vectors by text hash and settings, kept beside ``idx/``.
+def embed_pending(cfg: EmbeddingConfig, texts: dict[str, str]) -> dict[str, bytes]:
+    """Embed texts by hash, in batches; stop at the first server error.
 
-    ``index`` fills it without holding the index lock, so the long first
-    embedding of a repository never blocks searches; the locked refresh
-    then copies vectors from here. Several processes may write it; SQLite
-    serializes them.
+    Called without the index lock. Returns the vectors computed so far;
+    the rest stays pending for the next refresh.
     """
-
-    def __init__(self, data_dir: str, cfg: EmbeddingConfig):
-        self.key = cfg.key
-        self.conn = sqlite3.connect(os.path.join(data_dir, CACHE_FILENAME), timeout=30)
+    hashes = list(texts)
+    vectors: dict[str, bytes] = {}
+    for start in range(0, len(hashes), cfg.batch_size):
+        batch = hashes[start : start + cfg.batch_size]
         try:
-            self.conn.execute(
-                "CREATE TABLE IF NOT EXISTS cache (key TEXT, text_hash TEXT, "
-                "embedding BLOB, PRIMARY KEY (key, text_hash))"
-            )
-        except Exception:
-            self.conn.close()
-            raise
-
-    def close(self) -> None:
-        self.conn.close()
-
-    def __enter__(self) -> "EmbeddingCache":
-        return self
-
-    def __exit__(self, *exc) -> None:
-        self.close()
-
-    def get(self, hashes: Iterable[str]) -> dict[str, bytes]:
-        found = {}
-        for h in hashes:
-            row = self.conn.execute(
-                "SELECT embedding FROM cache WHERE key = ? AND text_hash = ?",
-                (self.key, h),
-            ).fetchone()
-            if row:
-                found[h] = row[0]
-        return found
-
-    def put(self, vectors: dict[str, bytes]) -> None:
-        self.conn.executemany(
-            "INSERT OR REPLACE INTO cache VALUES (?, ?, ?)",
-            [(self.key, h, blob) for h, blob in vectors.items()],
-        )
-        self.conn.commit()
-
-    def prefill(self, texts: dict[str, str], cfg: EmbeddingConfig) -> int:
-        """Embed texts the cache lacks; return how many are still missing."""
-        known = self.get(texts)
-        missing = [h for h in texts if h not in known]
-        for start in range(0, len(missing), cfg.batch_size):
-            batch = missing[start : start + cfg.batch_size]
-            try:
-                vectors = embed_texts(cfg, [texts[h] for h in batch], cfg.timeout)
-            except EmbeddingError as e:
-                logger.warning("Embedding stopped, will retry: %s", e)
-                return len(missing) - start
-            self.put({h: _pack(v) for h, v in zip(batch, vectors)})
-        return 0
+            result = embed_texts(cfg, [texts[h] for h in batch], cfg.timeout)
+        except EmbeddingError as e:
+            logger.debug("Vectors not complete, will retry: %s", e)
+            break
+        vectors.update((h, _pack(v)) for h, v in zip(batch, result))
+    return vectors
 
 
 def rrf_fuse(rankings: list[list[str]], k: int) -> list[tuple[str, float]]:

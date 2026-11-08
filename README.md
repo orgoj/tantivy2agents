@@ -268,8 +268,7 @@ tantivy2agents runs no model itself. Install the extra
 Optional keys: `query_template` (default `task: search result | query:
 {query}`), `document_template` (default `title: {title} | text: {content}`),
 `timeout` (indexing, default `30`), `search_timeout` (default `3`),
-`batch_size` (`32`), `max_chunk_chars` (`4000`), `rrf_k` (`60`),
-`max_fill_per_search` (sections a search may embed, `64`) and
+`batch_size` (`32`), `max_chunk_chars` (`4000`), `rrf_k` (`60`) and
 `api_key_env` (name of an environment variable holding a bearer token). The
 templates suit EmbeddingGemma; other models need their own. A hosted URL sends
 the indexed content to that service.
@@ -280,11 +279,12 @@ when `--mode` is not given. A default `hybrid` falls back to BM25 silently
 explicit `--mode hybrid` warns on stderr or fails with the install hint.
 
 Each Markdown section becomes one vector, stored in `idx/vectors.sqlite` and
-published together with the BM25 index. `index` sends new and changed
-sections to the server without holding the index lock (vectors are kept in
-`vectors-cache.sqlite` beside `idx/`), so even the first embedding of a large
-repository does not block searches. A hybrid search embeds at most
-`max_fill_per_search` sections under the lock; plain `bm25` searches never
+published together with the BM25 index. A hybrid search refreshes vectors
+the same way `index` does: under the index lock it refreshes the index and
+reads the sections without a vector, sends them to the server without the
+lock, and publishes the vectors under the lock. So even the first embedding
+of a large repository never blocks other searches (only the search that
+does it waits), and running `index` is optional. Plain `bm25` searches never
 call the server. Unchanged section text keeps its vector, and a change of
 model, dimensions or templates re-embeds the stored text without rebuilding
 the BM25 index. Only hybrid search needs `sqlite-vec`; indexing and BM25
@@ -307,8 +307,8 @@ project config win. It applies only in the directories listed in `projects`
 }
 ```
 
-Run `tantivy2agents index` in each project once afterwards, so searches find
-the vectors ready.
+Run `tantivy2agents index` in each project once afterwards, so the first
+search does not wait for the whole first embedding.
 
 For server-management repositories, keep the project-specific knowledge in
 committed files and tune `.tantivy2agents.json` to that layout. Typical include

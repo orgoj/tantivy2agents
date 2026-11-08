@@ -269,7 +269,8 @@ def test_model_change_reembeds_without_bm25_rebuild(project, server, capsys):
     agent._refresh_index_locked = recording
     capsys.readouterr()
     agent.search_command("cat", format_output="json", mode="hybrid")
-    assert actions == [("updated", 0)]
+    # Vector-only publishes (settings reset, then new vectors); no BM25 rebuild.
+    assert actions and set(actions) == {("updated", 0)}
     assert len(server.documents()) == 4
     assert json.loads(capsys.readouterr().out)["results"][0]["path"] == (
         "docs/kocky.md"
@@ -382,15 +383,13 @@ def test_user_config_without_projects_applies_nowhere(
     assert not os.path.exists(store_path(project))
 
 
-def test_index_leaves_late_cache_misses_pending_instead_of_embedding_locked(
-    project, server, monkeypatch
-):
+def test_failed_embedding_never_retries_under_the_lock(project, server, monkeypatch):
     agent = TantivyAgent(quiet=True)
     calls = []
     original = vectors_module.embed_texts
 
     def failing_first(*args, **kwargs):
-        # The unlocked prefill fails; the server is back for the locked phase.
+        # The unlocked embedding fails; the server is back afterwards.
         calls.append(agent.index_lock.held)
         if len(calls) == 1:
             raise vectors_module.EmbeddingError("down")
@@ -419,8 +418,7 @@ def test_default_hybrid_falls_back_silently(project, server, capsys, caplog):
     assert caplog.text == ""
 
 
-def test_index_calls_the_server_without_holding_the_lock(project, server):
-    agent = TantivyAgent(quiet=True)
+def probe_lock(agent, monkeypatch):
     held = []
     original = vectors_module.embed_texts
 
@@ -428,23 +426,49 @@ def test_index_calls_the_server_without_holding_the_lock(project, server):
         held.append(agent.index_lock.held)
         return original(*args, **kwargs)
 
-    vectors_module.embed_texts = probing
-    try:
-        agent.index_command()
-    finally:
-        vectors_module.embed_texts = original
+    monkeypatch.setattr(vectors_module, "embed_texts", probing)
+    return held
+
+
+def test_index_calls_the_server_without_holding_the_lock(project, monkeypatch):
+    agent = TantivyAgent(quiet=True)
+    held = probe_lock(agent, monkeypatch)
+    agent.index_command()
     assert held and not any(held)
     assert all(row[2] for row in store_rows(project))
 
 
-def test_search_fills_at_most_the_configured_number_of_vectors(project, server, capsys):
-    server.failing = True
+def test_search_refreshes_vectors_like_index_without_the_lock(
+    project, server, capsys, monkeypatch
+):
+    # Only searches ever run: the first one embeds every section, a later
+    # one the changed section, all without the lock and without any limit.
+    agent = TantivyAgent(quiet=True)
+    held = probe_lock(agent, monkeypatch)
+    capsys.readouterr()
+    agent.search_command("cat", format_output="json", mode="hybrid")
+    assert json.loads(capsys.readouterr().out)["results"][0]["path"] == (
+        "docs/kocky.md"
+    )
+    assert len(server.documents()) == 4
+    write(project, "docs/dogs.md", "# Dogs\n\nThe dog sleeps.\n")
+    server.inputs.clear()
+    search("dog", capsys)
+    assert server.documents() == ["title: Dogs | text: # Dogs\n\nThe dog sleeps."]
+    assert held and not any(held)
+    assert all(row[2] for row in store_rows(project))
+
+
+def test_no_cache_file_and_a_leftover_one_is_removed(project, capsys):
+    data_dir = os.path.join(project, ".tantivy-data")
     TantivyAgent(quiet=True).index_command()
-    server.failing = False
-    write_config(project, embeddings_config(server, max_fill_per_search=1))
     search("cat", capsys)
-    assert len(server.documents()) == 1
-    assert sum(row[2] for row in store_rows(project)) == 1
+    legacy = os.path.join(data_dir, vectors_module.LEGACY_CACHE_FILENAME)
+    assert not os.path.exists(legacy)
+    with open(legacy, "wb") as f:
+        f.write(b"left by 0.12.0")
+    search("cat", capsys, mode="bm25")
+    assert not os.path.exists(legacy)
 
 
 def test_rrf_rewards_agreement():

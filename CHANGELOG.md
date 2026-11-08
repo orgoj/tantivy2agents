@@ -4,6 +4,17 @@ All notable project changes are tracked here.
 
 ## [Unreleased]
 
+### Changed
+- The auto-refresh of a hybrid search and `index` refresh vectors through
+  the same path: sections are embedded without the index lock and published
+  under it, with no per-search limit. `embeddings.max_fill_per_search` is
+  gone (ignored if set).
+
+### Removed
+- `vectors-cache.sqlite`: vectors are kept in memory between the unlocked
+  embedding and the locked publish; a leftover file is deleted by the next
+  refresh.
+
 ## [0.12.0] - 2026-11-08
 
 ### Added
