@@ -22,7 +22,9 @@ import yaml
 
 from .czech_stemmer import normalize_czech_text
 from .config import (
+    apply_user_config,
     config_example_text,
+    default_search_mode,
     get_default_config_for_project_type,
     load_config,
     validate_search_filters,
@@ -141,8 +143,13 @@ class TantivyAgent:
         self.config_path = config_path or os.path.join(
             self.project_root, ".tantivy2agents.json"
         )
-        self.config = self._load_config()
+        self.config = apply_user_config(self._load_config(), self.project_root)
         self.embeddings = vectors_module.embedding_config(self.config)
+        self.default_mode = default_search_mode(self.config)
+        # Texts a locked refresh may send to the server (None: all) and the
+        # log level for hybrid fallbacks; search_command narrows both.
+        self._fill_limit: Optional[int] = None
+        self._hybrid_log = logger.warning
         self._lock: Optional[IndexLock] = None
 
     @property
@@ -788,8 +795,8 @@ class TantivyAgent:
         if state is not None and not force:
             removed, refresh = self._diff_manifest(state["manifest"], scan.entries)
             if not removed and not refresh:
-                if vectors_online and self._vectors_need_work(
-                    index_dir, state["manifest"]
+                if self._vectors_need_work(
+                    index_dir, state["manifest"], vectors_online
                 ):
                     return self._build_and_publish(
                         data_dir, index_dir, scan, state, vectors_online
@@ -1051,10 +1058,15 @@ class TantivyAgent:
                     store.replace(key, self._chunks(doc))
             store.commit()
             if online and store.pending():
-                store.fill()
+                with vectors_module.EmbeddingCache(
+                    os.path.dirname(index_dir), self.embeddings
+                ) as cache:
+                    store.fill(cache, self._fill_limit)
 
-    def _vectors_need_work(self, index_dir: str, manifest: dict) -> bool:
-        """Read-only check: the live store lacks files, vectors or settings."""
+    def _vectors_need_work(self, index_dir: str, manifest: dict, online: bool) -> bool:
+        """Read-only check: the live store lacks files or settings, or (online
+        only) vectors. Offline, pending vectors alone publish nothing, so
+        BM25 searches do not republish the index while the server is away."""
         if self.embeddings is None:
             return False
         indexed = {key for key, value in manifest.items() if value[2]}
@@ -1065,9 +1077,9 @@ class TantivyAgent:
             with vectors_module.VectorStore(
                 path, self.embeddings, readonly=True
             ) as store:
-                if not store.current:
+                if not store.current or not indexed <= store.paths():
                     return True
-                return store.pending() > 0 or not indexed <= store.paths()
+                return online and store.pending() > 0
         except sqlite3.Error:
             return True
 
@@ -1100,9 +1112,47 @@ class TantivyAgent:
 
         The whole rebuild runs under the exclusive index lock so that parallel
         index/search processes wait instead of deleting each other's files.
+        With embeddings, the server is called between two locked refreshes,
+        so a long first embedding never blocks searches.
         """
         with self.index_lock.acquire():
             self._index_locked(force, show_dirs, show_files)
+        if self.embeddings is not None:
+            self._index_vectors()
+
+    def _index_vectors(self) -> None:
+        data_dir = os.path.join(self.project_root, self.config["index_dir"])
+        index_dir = os.path.join(data_dir, "idx")
+        path = os.path.join(index_dir, vectors_module.VECTORS_FILENAME)
+        with self.index_lock.acquire():
+            texts = {}
+            if os.path.exists(path):
+                with vectors_module.VectorStore(
+                    path, self.embeddings, readonly=True
+                ) as store:
+                    texts = store.pending_texts() if store.current else store.texts()
+        with vectors_module.EmbeddingCache(data_dir, self.embeddings) as cache:
+            missing = cache.prefill(texts, self.embeddings)
+        # Under the lock only cache hits are copied; anything new since the
+        # snapshot stays pending for the next index or hybrid search.
+        self._fill_limit = 0
+        try:
+            with self.index_lock.acquire():
+                self._refresh_index_locked(data_dir, index_dir, vectors_online=True)
+                pending = self._pending_vectors(index_dir)
+        finally:
+            self._fill_limit = None
+        if missing or pending:
+            print(f"Vectors pending: {pending} sections (server unavailable?)")
+        else:
+            print("Vectors up to date")
+
+    def _pending_vectors(self, index_dir: str) -> int:
+        path = os.path.join(index_dir, vectors_module.VECTORS_FILENAME)
+        if not os.path.exists(path):
+            return 0
+        with vectors_module.VectorStore(path, self.embeddings, readonly=True) as store:
+            return store.pending() if store.current else -1
 
     def _index_locked(self, force: bool, show_dirs: bool, show_files: bool) -> None:
         """Refresh the index. Must be called while holding the write lock."""
@@ -1114,9 +1164,8 @@ class TantivyAgent:
         if show_dirs or show_files:
             self._get_files_for_indexing(show_dirs, show_files)
 
-        result = self._refresh_index_locked(
-            data_dir, index_dir, force=force, vectors_online=True
-        )
+        # Chunks are stored here; their vectors come in _index_vectors.
+        result = self._refresh_index_locked(data_dir, index_dir, force=force)
 
         if result.action == "fresh":
             print("Index is up to date")
@@ -1141,7 +1190,7 @@ class TantivyAgent:
         output_file: Optional[str] = None,
         allow_outside_output: bool = False,
         show_snippets: bool = False,
-        mode: str = "bm25",
+        mode: Optional[str] = None,
     ) -> None:
         """Search in indexed documents"""
         if not query:
@@ -1160,7 +1209,14 @@ class TantivyAgent:
         # The server is asked before the lock is taken, so a slow or missing
         # server never holds up other searches.
         query_vector = None
-        if mode == "hybrid":
+        explicit = mode is not None
+        mode = mode or self.default_mode
+        # A configured default stays silent when hybrid cannot run: the
+        # caller asked for a search, not for a mode, and gets BM25 results.
+        self._hybrid_log = logger.warning if explicit else logger.debug
+        if self.embeddings is not None:
+            self._fill_limit = self.embeddings.max_fill_per_search
+        if mode == "hybrid" and (explicit or self.embeddings is not None):
             if self.embeddings is None:
                 raise ValidationError(
                     message="--mode hybrid needs an 'embeddings' config section",
@@ -1168,11 +1224,15 @@ class TantivyAgent:
                     got=mode,
                     expected="bm25, or an embeddings section in the config",
                 )
-            vectors_module.require_sqlite_vec()
             try:
+                vectors_module.require_sqlite_vec()
                 query_vector = vectors_module.embed_query(self.embeddings, query)
+            except vectors_module.HybridUnavailableError:
+                if explicit:
+                    raise
+                logger.debug("sqlite-vec missing, using BM25 only")
             except vectors_module.EmbeddingError as e:
-                logger.warning("Hybrid search unavailable, using BM25 only: %s", e)
+                self._hybrid_log("Hybrid search unavailable, using BM25 only: %s", e)
 
         # One lock transaction covers the refresh and the query, so a
         # concurrent clear or rebuild cannot slip in between them. Every
@@ -1282,18 +1342,18 @@ class TantivyAgent:
         """Paths ranked by their best chunk, or None when vectors are unusable."""
         path = os.path.join(index_dir, vectors_module.VECTORS_FILENAME)
         if not os.path.exists(path):
-            logger.warning("No vectors indexed yet, using BM25 only")
+            self._hybrid_log("No vectors indexed yet, using BM25 only")
             return None
         try:
             with vectors_module.VectorStore(
                 path, self.embeddings, readonly=True
             ) as store:
                 if not store.current:
-                    logger.warning("Vectors are from other settings, using BM25 only")
+                    self._hybrid_log("Vectors are from other settings, using BM25 only")
                     return None
                 hits = store.search(query_vector, limit)
         except sqlite3.Error as e:
-            logger.warning("Vector search failed, using BM25 only: %s", e)
+            self._hybrid_log("Vector search failed, using BM25 only: %s", e)
             return None
         return [p for p, _section in vectors_module.best_by_path(hits)]
 

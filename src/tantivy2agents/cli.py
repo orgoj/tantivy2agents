@@ -122,11 +122,12 @@ def search(
         "--snippets",
         help="Include a short matching content snippet in search results",
     ),
-    mode: SearchMode = typer.Option(
-        SearchMode.bm25,
+    mode: Optional[SearchMode] = typer.Option(
+        None,
         "--mode",
         "-m",
-        help="bm25, or hybrid (BM25 + vectors; needs an 'embeddings' config)",
+        help="bm25 or hybrid (BM25 + vectors; needs an 'embeddings' config); "
+        "default: search.default_mode, else bm25",
     ),
     config: Optional[str] = typer.Option(
         None, "--config", "-c", help="Path to config file"
@@ -163,7 +164,7 @@ def search(
         output,
         allow_outside_output,
         show_snippets=snippets,
-        mode=mode.value,
+        mode=mode.value if mode else None,
     )
 
 

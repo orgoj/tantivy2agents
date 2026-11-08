@@ -74,7 +74,7 @@ class StubAgent:
         output,
         allow_outside_output=False,
         show_snippets=False,
-        mode="bm25",
+        mode=None,
     ):
         StubAgent.calls.append(
             (
@@ -232,11 +232,11 @@ def test_search_snippets_option_dispatches_to_agent(stub_agent):
     assert ("search", "test", None, "text", None, False, True) in stub_agent.calls
 
 
-def test_search_mode_defaults_to_bm25_and_accepts_hybrid(stub_agent):
+def test_search_mode_is_left_to_config_unless_given(stub_agent):
     assert runner.invoke(app, ["search", "test"]).exit_code == 0
     assert runner.invoke(app, ["search", "test", "--mode", "hybrid"]).exit_code == 0
     assert runner.invoke(app, ["search", "test", "--mode", "dense"]).exit_code != 0
-    assert stub_agent.modes == ["bm25", "hybrid"]
+    assert stub_agent.modes == [None, "hybrid"]
 
 
 def test_format_enum_validation():

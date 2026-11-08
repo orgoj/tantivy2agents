@@ -324,6 +324,129 @@ def test_server_with_too_few_dimensions_is_rejected(server):
         vectors_module.embed_query(cfg, "cat")
 
 
+def write_user_config(tmp_path, monkeypatch, data):
+    path = tmp_path.parent / f"{tmp_path.name}-user.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setenv("TANTIVY2AGENTS_USER_CONFIG", str(path))
+
+
+def test_user_config_enables_hybrid_without_touching_the_project(
+    project, server, capsys, tmp_path, monkeypatch
+):
+    write_config(project)  # the project config knows nothing about vectors
+    with open(os.path.join(project, ".tantivy2agents.json"), "rb") as f:
+        committed = f.read()
+    write_user_config(
+        tmp_path,
+        monkeypatch,
+        {
+            "projects": [project],
+            "embeddings": embeddings_config(server),
+            "search": {"default_mode": "hybrid"},
+        },
+    )
+    TantivyAgent(quiet=True).index_command()
+    assert search("cat", capsys, mode=None)[0] == "docs/kocky.md"
+    with open(os.path.join(project, ".tantivy2agents.json"), "rb") as f:
+        assert f.read() == committed
+
+
+def test_user_config_ignores_projects_not_listed(
+    project, server, capsys, tmp_path, monkeypatch
+):
+    write_config(project)
+    write_user_config(
+        tmp_path,
+        monkeypatch,
+        {
+            "projects": [os.path.join(project, "elsewhere")],
+            "embeddings": embeddings_config(server),
+            "search": {"default_mode": "hybrid"},
+        },
+    )
+    assert search("cat", capsys, mode=None) == []
+    assert server.inputs == []
+    assert not os.path.exists(store_path(project))
+
+
+def test_user_config_without_projects_applies_nowhere(
+    project, server, capsys, tmp_path, monkeypatch
+):
+    write_config(project)
+    write_user_config(
+        tmp_path,
+        monkeypatch,
+        {"embeddings": embeddings_config(server), "search": {"default_mode": "hybrid"}},
+    )
+    assert search("cat", capsys, mode=None) == []
+    assert not os.path.exists(store_path(project))
+
+
+def test_index_leaves_late_cache_misses_pending_instead_of_embedding_locked(
+    project, server, monkeypatch
+):
+    agent = TantivyAgent(quiet=True)
+    calls = []
+    original = vectors_module.embed_texts
+
+    def failing_first(*args, **kwargs):
+        # The unlocked prefill fails; the server is back for the locked phase.
+        calls.append(agent.index_lock.held)
+        if len(calls) == 1:
+            raise vectors_module.EmbeddingError("down")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(vectors_module, "embed_texts", failing_first)
+    agent.index_command()
+    assert calls == [False]
+    assert not any(row[2] for row in store_rows(project))
+
+
+def test_default_hybrid_falls_back_silently(project, server, capsys, caplog):
+    write_config(
+        project,
+        embeddings_config(server),
+    )
+    with open(os.path.join(project, ".tantivy2agents.json")) as f:
+        config = json.load(f)
+    config["search"]["default_mode"] = "hybrid"
+    with open(os.path.join(project, ".tantivy2agents.json"), "w") as f:
+        json.dump(config, f)
+    TantivyAgent(quiet=True).index_command()
+    server.failing = True
+    with caplog.at_level(logging.WARNING):
+        assert search("barks", capsys, mode=None) == ["docs/dogs.md"]
+    assert caplog.text == ""
+
+
+def test_index_calls_the_server_without_holding_the_lock(project, server):
+    agent = TantivyAgent(quiet=True)
+    held = []
+    original = vectors_module.embed_texts
+
+    def probing(*args, **kwargs):
+        held.append(agent.index_lock.held)
+        return original(*args, **kwargs)
+
+    vectors_module.embed_texts = probing
+    try:
+        agent.index_command()
+    finally:
+        vectors_module.embed_texts = original
+    assert held and not any(held)
+    assert all(row[2] for row in store_rows(project))
+
+
+def test_search_fills_at_most_the_configured_number_of_vectors(project, server, capsys):
+    server.failing = True
+    TantivyAgent(quiet=True).index_command()
+    server.failing = False
+    write_config(project, embeddings_config(server, max_fill_per_search=1))
+    search("cat", capsys)
+    assert len(server.documents()) == 1
+    assert sum(row[2] for row in store_rows(project)) == 1
+
+
 def test_rrf_rewards_agreement():
     fused = vectors_module.rrf_fuse([["a", "b"], ["b", "c"]], 60)
     assert [path for path, _score in fused] == ["b", "a", "c"]

@@ -8,6 +8,7 @@ import os
 from typing import Any
 
 from .exceptions import ConfigError, ValidationError
+from .paths import is_inside
 
 DEFAULT_ENCODING_CONFIDENCE_THRESHOLD = 0.7
 AGENT_INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md", "GEMINI.md"]
@@ -333,6 +334,71 @@ def load_config(config_path: str) -> dict[str, Any]:
     validate_index_paths(config)
     validate_search_filters(config)
     return config
+
+
+USER_CONFIG_ENV = "TANTIVY2AGENTS_USER_CONFIG"
+SEARCH_MODES = ("bm25", "hybrid")
+
+
+def user_config_path() -> str:
+    """Per-user config: ``$TANTIVY2AGENTS_USER_CONFIG``, else the OS config dir."""
+    override = os.environ.get(USER_CONFIG_ENV)
+    if override:
+        return override
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "tantivy2agents", "config.json")
+
+
+def apply_user_config(config: dict[str, Any], project_root: str) -> dict[str, Any]:
+    """Fill ``embeddings`` and ``search.default_mode`` from the user config.
+
+    Lets one machine try hybrid search in chosen projects without touching
+    their committed config. It applies only at and below the roots listed
+    in ``projects``; without that list it applies nowhere. Values in the
+    project config win.
+    """
+    path = user_config_path()
+    if not os.path.exists(path):
+        return config
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            user = json.load(f)
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise ConfigError(message=f"Error loading user config: {e}", config_path=path)
+    if not isinstance(user, dict):
+        raise ConfigError(message="User config must be an object", config_path=path)
+
+    projects = user.get("projects", [])
+    if not isinstance(projects, list) or not all(isinstance(p, str) for p in projects):
+        raise ConfigError(
+            message="'projects' must be a list of paths", config_path=path
+        )
+    root = os.path.realpath(project_root)
+    if not any(
+        is_inside(os.path.realpath(os.path.expanduser(p)), root) is True
+        for p in projects
+    ):
+        return config
+
+    if "embeddings" in user and "embeddings" not in config:
+        config["embeddings"] = user["embeddings"]
+    mode = (user.get("search") or {}).get("default_mode")
+    search = config.get("search") or {}
+    if mode is not None and "default_mode" not in search:
+        config["search"] = {**search, "default_mode": mode}
+    return config
+
+
+def default_search_mode(config: dict[str, Any]) -> str:
+    mode = (config.get("search") or {}).get("default_mode", "bm25")
+    if mode not in SEARCH_MODES:
+        raise ConfigError(
+            message=f"search.default_mode must be one of {', '.join(SEARCH_MODES)}"
+        )
+    return mode
 
 
 def _merge_global_patterns(

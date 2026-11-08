@@ -4,6 +4,18 @@ All notable project changes are tracked here.
 
 ## [Unreleased]
 
+### Added
+- `search.default_mode` (`bm25`|`hybrid`) chooses the mode when `--mode` is
+  not given; a default `hybrid` falls back to BM25 silently.
+- Per-user config (`~/.config/tantivy2agents/config.json`, limited by
+  `projects`) can supply `embeddings` and `search.default_mode` without
+  changing a project's committed config.
+
+### Changed
+- `index` embeds sections without holding the index lock, through
+  `vectors-cache.sqlite` beside `idx/`; a hybrid search embeds at most
+  `embeddings.max_fill_per_search` (64) sections under the lock.
+
 ## [0.11.0] - 2026-11-08
 
 ### Fixed
