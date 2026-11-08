@@ -4,6 +4,8 @@ All notable project changes are tracked here.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-08
+
 ### Changed
 - The auto-refresh of a hybrid search and `index` refresh vectors through
   the same path: sections are embedded without the index lock and published
