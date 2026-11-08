@@ -4,6 +4,8 @@ All notable project changes are tracked here.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-08
+
 ### Added
 - `search.default_mode` (`bm25`|`hybrid`) chooses the mode when `--mode` is
   not given; a default `hybrid` falls back to BM25 silently.
