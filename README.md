@@ -293,12 +293,12 @@ mise run pre-commit
 ```
 
 The current full custom test runner is not green in this checkout. Known failing
-areas are tracked in `TODO.md`; keep new fixes covered by permanent tests.
+areas are tracked in Backlog.md (`backlog task list --plain`); keep new fixes covered by permanent tests.
 
 ## Project Docs
 
 - `CHANGELOG.md`: released changes.
-- `TODO.md`: open work only.
+- `backlog/`: open work as Backlog.md tasks.
 - `AGENTS.md`: project-specific agent/development rules.
 - `src/tantivy2agents/skills/*/SKILL.md`: packaged CLI help documents.
 

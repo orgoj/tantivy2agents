@@ -12,6 +12,10 @@ All notable project changes are tracked here.
   warning goes to stderr when the index changes. Other I/O errors still keep
   the previous index.
 
+### Changed
+- Open work moved from `TODO.md` to Backlog.md tasks in `backlog/`; the
+  repo-local `todo-roadmap-workflow` skill became `task-workflow`.
+
 ## [0.10.0] - 2026-10-11
 
 ### Added

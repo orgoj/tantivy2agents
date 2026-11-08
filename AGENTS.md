@@ -1,7 +1,8 @@
 # Tantivy2agents Agent Notes
 
 Keep this file short. Put user-facing docs in `README.md`, release history in
-`CHANGELOG.md`, and open work in `TODO.md`.
+`CHANGELOG.md`, and open work in Backlog.md tasks (`backlog/`, run
+`backlog task list --plain`).
 
 ## Commands
 
@@ -15,6 +16,9 @@ Keep this file short. Put user-facing docs in `README.md`, release history in
 
 - Use Typer for CLI commands in `src/tantivy2agents/cli.py`.
 - Keep the CLI flat; do not introduce command groups without a clear need.
+- The default search result limit is intentionally `5`, not `10`.
+- Do not delete ignored local artifacts (`.venv/`, caches, local agent
+  settings) just for cleanliness.
 - Use `OutputFormat` or another Enum for fixed choices.
 - Prefer `CLIError` subclasses for user-facing failures. `agent.py` still has
   legacy `print()`/`sys.exit()` paths; do not add more.
