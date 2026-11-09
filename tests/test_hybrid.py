@@ -325,6 +325,15 @@ def test_server_with_too_few_dimensions_is_rejected(server):
         vectors_module.embed_query(cfg, "cat")
 
 
+def test_default_search_timeout_covers_a_cold_model_load():
+    # A cold Ollama load takes ~4-10 s and a cancelled request aborts it,
+    # so a short default kept every query cold and silently BM25-only.
+    cfg = vectors_module.embedding_config(
+        {"embeddings": {"url": "http://127.0.0.1:1/v1", "model": "m", "dimensions": 8}}
+    )
+    assert cfg.search_timeout == 15.0
+
+
 def write_user_config(tmp_path, monkeypatch, data):
     path = tmp_path.parent / f"{tmp_path.name}-user.json"
     path.write_text(json.dumps(data), encoding="utf-8")

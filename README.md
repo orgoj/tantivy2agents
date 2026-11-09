@@ -267,8 +267,8 @@ tantivy2agents runs no model itself. Install the extra
 
 Optional keys: `query_template` (default `task: search result | query:
 {query}`), `document_template` (default `title: {title} | text: {content}`),
-`timeout` (indexing, default `30`), `search_timeout` (default `3`),
-`batch_size` (`32`), `max_chunk_chars` (`4000`), `rrf_k` (`60`) and
+`timeout` (indexing, default `30`), `search_timeout` (default `15`, long
+enough for a server that loads the model on demand), `batch_size` (`32`), `max_chunk_chars` (`4000`), `rrf_k` (`60`) and
 `api_key_env` (name of an environment variable holding a bearer token). The
 templates suit EmbeddingGemma; other models need their own. A hosted URL sends
 the indexed content to that service.

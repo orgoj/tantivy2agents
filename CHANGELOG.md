@@ -4,6 +4,13 @@ All notable project changes are tracked here.
 
 ## [Unreleased]
 
+### Fixed
+- Hybrid search no longer falls back to BM25 on every query when the
+  embedding server loads its model on demand: the default
+  `embeddings.search_timeout` is `15` s instead of `3`. A cold load took
+  longer than 3 s, and the cancelled request aborted it, so the model never
+  stayed loaded.
+
 ## [0.13.0] - 2026-11-08
 
 ### Changed

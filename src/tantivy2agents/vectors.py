@@ -39,7 +39,7 @@ DEFAULTS = {
     "query_template": "task: search result | query: {query}",
     "document_template": "title: {title} | text: {content}",
     "timeout": 30.0,
-    "search_timeout": 3.0,
+    "search_timeout": 15.0,
     "batch_size": 32,
     "max_chunk_chars": 4000,
     "rrf_k": 60,
