@@ -57,11 +57,69 @@ def test_find_project_root_finds_marker_on_windows_paths():
     result = find_project_root(
         start,
         dirname=ntpath.dirname,
-        exists=lambda p: p == ntpath.join(repo, ".git"),
+        exists=lambda p: p == ntpath.join(repo, ".tantivy2agents.json"),
         join=ntpath.join,
     )
 
     assert result == repo
+
+
+def test_find_project_root_ignores_nested_git_on_windows_paths():
+    """A nearer nested .git does not stop the walk on Windows paths either."""
+    parent = "C:\\Users\\kolega\\projekt"
+    nested = "C:\\Users\\kolega\\projekt\\repos\\app"
+    found = {ntpath.join(parent, ".tantivy2agents.json"), ntpath.join(nested, ".git")}
+
+    result = find_project_root(
+        ntpath.join(nested, "src"),
+        dirname=ntpath.dirname,
+        exists=lambda p: p in found,
+        join=ntpath.join,
+    )
+
+    assert result == parent
+
+
+def _touch(path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("{}")
+
+
+def test_nested_repo_without_config_uses_configured_parent():
+    """Regression: a nested git repo without its own config used to become
+    the project root and got a default index of its own; the configured
+    parent must be found instead."""
+    with tempfile.TemporaryDirectory() as root:
+        _touch(os.path.join(root, ".tantivy2agents.json"))
+        nested = os.path.join(root, "repos", "app")
+        os.makedirs(os.path.join(nested, ".git"))
+        os.makedirs(os.path.join(nested, "src"))
+
+        assert find_project_root(os.path.join(nested, "src")) == root
+
+
+def test_nested_repo_with_own_config_stays_its_own_project():
+    with tempfile.TemporaryDirectory() as root:
+        _touch(os.path.join(root, ".tantivy2agents.json"))
+        nested = os.path.join(root, "repos", "app")
+        _touch(os.path.join(nested, ".tantivy2agents.json"))
+        os.makedirs(os.path.join(nested, ".git"))
+
+        assert find_project_root(nested) == nested
+
+
+def test_without_config_git_is_ignored_and_cwd_is_returned():
+    """Git repositories never decide the root; without a config the walk
+    falls back to the start directory (index commands then refuse to run)."""
+    with tempfile.TemporaryDirectory() as root:
+        nested = os.path.join(root, "repos", "app")
+        os.makedirs(os.path.join(root, ".git"))
+        os.makedirs(os.path.join(nested, ".git"))
+        start = os.path.join(nested, "src")
+        os.makedirs(start)
+
+        assert find_project_root(start) == start
 
 
 def test_find_project_root_terminates_at_posix_root():
@@ -330,6 +388,22 @@ def main():
         (
             "Project Root Terminates On POSIX",
             test_find_project_root_terminates_at_posix_root,
+        ),
+        (
+            "Nested Git Ignored On Windows",
+            test_find_project_root_ignores_nested_git_on_windows_paths,
+        ),
+        (
+            "Nested Repo Uses Configured Parent",
+            test_nested_repo_without_config_uses_configured_parent,
+        ),
+        (
+            "Nested Repo With Own Config",
+            test_nested_repo_with_own_config_stays_its_own_project,
+        ),
+        (
+            "Git Ignored Without Config",
+            test_without_config_git_is_ignored_and_cwd_is_returned,
         ),
         ("Index Path Normalization", test_to_index_path_normalizes_windows_separators),
         ("POSIX Filenames Intact", test_to_index_path_keeps_posix_filenames_intact),

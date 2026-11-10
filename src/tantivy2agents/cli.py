@@ -64,6 +64,17 @@ class OutlineFormat(str, Enum):
     text = "text"
 
 
+def _project_agent(config: Optional[str], verbose: bool, quiet: bool) -> TantivyAgent:
+    """Agent for a command that reads or writes the index.
+
+    Refuses to run without a project config, so a command started in an
+    unconfigured directory never builds a default index there.
+    """
+    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent.require_config()
+    return agent
+
+
 # =============================================================================
 # Core Commands
 # =============================================================================
@@ -98,7 +109,7 @@ def index(
         tantivy2agents index --force
         tantivy2agents index --dirs --files
     """
-    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent = _project_agent(config, verbose, quiet)
     agent.index_command(force=force, show_dirs=show_dirs, show_files=show_files)
 
 
@@ -156,7 +167,7 @@ def search(
             got="(empty)",
         )
 
-    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent = _project_agent(config, verbose, quiet)
     agent.search_command(
         query,
         limit,
@@ -191,7 +202,7 @@ def outline(
         tantivy2agents outline a3f2c1:1
         tantivy2agents outline guides/deploy.md --format json
     """
-    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent = _project_agent(config, verbose, quiet)
     ReadGateway(agent).outline_command(target, format.value)
 
 
@@ -224,7 +235,7 @@ def read(
         tantivy2agents read a3f2c1:1 --section setup
         tantivy2agents read guides/deploy.md --lines 10-40 --numbers
     """
-    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent = _project_agent(config, verbose, quiet)
     ReadGateway(agent).read_command(target, section, lines, numbers)
 
 
@@ -258,7 +269,7 @@ def usage(
         tantivy2agents usage --since 7d --format json
         tantivy2agents usage --recent-read guides/deploy.md --within 1h
     """
-    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent = _project_agent(config, verbose, quiet)
     gateway = ReadGateway(agent)
     if recent_read:
         raise typer.Exit(gateway.recent_read_command(recent_read, within))
@@ -282,7 +293,7 @@ def clear(
     Example:
         tantivy2agents clear
     """
-    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent = _project_agent(config, verbose, quiet)
     agent.clear_command()
 
 
@@ -304,7 +315,7 @@ def status(
     Example:
         tantivy2agents status
     """
-    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent = _project_agent(config, verbose, quiet)
     agent.status_command()
 
 
@@ -409,7 +420,7 @@ def hook_clear(
     Example:
         tantivy2agents hook-clear
     """
-    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent = _project_agent(config, verbose, quiet)
     agent.hook_clear_command()
 
 
@@ -510,7 +521,7 @@ def list_files(
     import fnmatch
     from charset_normalizer import detect
 
-    agent = TantivyAgent(config_path=config, verbose=verbose, quiet=quiet)
+    agent = _project_agent(config, verbose, quiet)
     files, _ = agent._get_files_for_indexing()
 
     # Apply pattern filter if specified

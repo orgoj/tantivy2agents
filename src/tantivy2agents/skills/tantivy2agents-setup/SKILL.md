@@ -93,7 +93,9 @@ tantivy2agents install --no-config
 
 ## Configuration File
 
-Configuration is stored in `.tantivy2agents.json` in project root.
+Configuration is stored in `.tantivy2agents.json` in project root. Commands
+find it by walking up from the working directory (git repositories play no
+part); without one, index and search commands fail until `install` creates it.
 
 ### Minimal Configuration
 

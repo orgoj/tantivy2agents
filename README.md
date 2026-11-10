@@ -229,6 +229,14 @@ Minimal `.tantivy2agents.json`:
 }
 ```
 
+The project root is the nearest directory at or above the working directory
+that holds `.tantivy2agents.json`; git repositories play no part, so a nested
+repository without its own config uses the configured project above it. A
+nested repository with its own config is its own project. Without a config
+anywhere above, `index`, `search`, `outline`, `read`, `usage`, `clear`,
+`status`, `list` and `hook-clear` fail instead of building a default index;
+run `tantivy2agents install` first.
+
 Useful fields:
 
 - `index_dir`: where index data is stored; default is `.tantivy-data`. Must be

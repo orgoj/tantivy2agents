@@ -5,6 +5,17 @@ All notable project changes are tracked here.
 ## [Unreleased]
 
 ### Fixed
+- The project root is the nearest directory with `.tantivy2agents.json`;
+  `.git` no longer counts. A command run inside a nested git repository
+  without its own config uses the configured parent project. Before, the
+  nested `.git` became the project root and got a default index of its own
+  (every text file, `tmp/` and `vendor/` included), which a hybrid search
+  then embedded in full before answering.
+
+### Changed
+- Commands that read or write the index fail when no `.tantivy2agents.json`
+  exists at or above the working directory, instead of indexing it with the
+  default config. `install` creates the config.
 - Hybrid search no longer falls back to BM25 on every query when the
   embedding server loads its model on demand: the default
   `embeddings.search_timeout` is `15` s instead of `3`. A cold load took

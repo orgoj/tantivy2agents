@@ -30,6 +30,7 @@ from .config import (
     validate_search_filters,
 )
 from .exceptions import (
+    ConfigError,
     FileSystemError,
     IndexNotFoundError,
     ValidationError,
@@ -46,6 +47,7 @@ from .locking import LOCK_FILENAME, IndexLock
 from . import vectors as vectors_module
 from .usage import USAGE_FILENAMES, UsageLog, new_search_id
 from .paths import (
+    CONFIG_FILENAME,
     find_project_root,
     is_inside,
     to_index_path,
@@ -141,7 +143,7 @@ class TantivyAgent:
         self._setup_logging()
         self.project_root = self._find_project_root()
         self.config_path = config_path or os.path.join(
-            self.project_root, ".tantivy2agents.json"
+            self.project_root, CONFIG_FILENAME
         )
         self.config = apply_user_config(self._load_config(), self.project_root)
         self.embeddings = vectors_module.embedding_config(self.config)
@@ -176,8 +178,17 @@ class TantivyAgent:
         )
 
     def _find_project_root(self):
-        """Find project root by looking for .git directory"""
+        """Nearest directory at or above cwd holding the config, else cwd."""
         return find_project_root(os.getcwd())
+
+    def require_config(self) -> None:
+        """Fail unless a project config exists; see ``_find_project_root``."""
+        if not os.path.exists(self.config_path):
+            raise ConfigError(
+                message=f"No {CONFIG_FILENAME} found in {os.getcwd()} "
+                "or any parent directory",
+                config_path=None,
+            )
 
     def _load_config(self):
         """Load configuration from JSON file with defaults"""

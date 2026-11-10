@@ -13,10 +13,15 @@ from typing import Callable, Optional
 # configured patterns, on all platforms.
 INDEX_SEPARATOR = "/"
 
+# Project configuration file; its directory is the project root. Git
+# repositories play no part: a nested repo without its own config belongs to
+# the configured project above it.
+CONFIG_FILENAME = ".tantivy2agents.json"
+
 
 def find_project_root(
     start: str,
-    marker: str = ".git",
+    marker: str = CONFIG_FILENAME,
     dirname: Callable[[str], str] = os.path.dirname,
     exists: Callable[[str], bool] = os.path.exists,
     join: Callable[..., str] = os.path.join,

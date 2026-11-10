@@ -66,6 +66,9 @@ class StubAgent:
         self.quiet = quiet
         StubAgent.calls.append(("init", config_path, verbose, quiet))
 
+    def require_config(self):
+        pass
+
     def search_command(
         self,
         query,
@@ -508,7 +511,7 @@ def test_full_workflow_index_search():
         with open("guide.md", "w", encoding="utf-8") as f:
             f.write("# Testing Guide\n\nThis document covers workflow testing.")
 
-        result = runner.invoke(app, ["install", "--no-config"])
+        result = runner.invoke(app, ["install"])
         assert result.exit_code == 0
 
         result = runner.invoke(app, ["index"])
@@ -517,6 +520,42 @@ def test_full_workflow_index_search():
         result = runner.invoke(app, ["search", "testing", "--limit", "1"])
         assert result.exit_code == 0
         assert "### FILE: guide.md" in result.stdout
+
+
+def test_index_commands_refuse_to_run_without_config():
+    """Regression: a search started in a directory without a config used to
+    build a default index there; it must fail and leave no files behind."""
+    with isolated_filesystem():
+        os.makedirs(".git", exist_ok=True)
+        with open("guide.md", "w", encoding="utf-8") as f:
+            f.write("# Guide\n")
+
+        for args in (["search", "guide"], ["index"], ["status"], ["list"]):
+            result = runner.invoke(app, args)
+            assert result.exit_code != 0, args
+            assert ".tantivy2agents.json" in str(result.exception), args
+
+        assert sorted(os.listdir(".")) == [".git", "guide.md"]
+
+
+def test_search_in_nested_repo_uses_configured_parent():
+    """Regression: a nested git repo without its own config is searched
+    through the configured parent's index, not a new index of its own."""
+    with isolated_filesystem():
+        create_search_project()
+        assert runner.invoke(app, ["index"]).exit_code == 0
+        nested = os.path.join("repos", "app")
+        os.makedirs(os.path.join(nested, ".git"))
+        parent = os.getcwd()
+        os.chdir(nested)
+        try:
+            result = runner.invoke(app, ["search", "testing", "--limit", "1"])
+        finally:
+            os.chdir(parent)
+
+        assert result.exit_code == 0, result.output
+        assert "### FILE: docs/guide.md" in result.stdout
+        assert sorted(os.listdir(nested)) == [".git"]
 
 
 def test_search_returns_each_file_once_when_index_has_duplicate_paths():
