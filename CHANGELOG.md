@@ -4,6 +4,8 @@ All notable project changes are tracked here.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-10
+
 ### Fixed
 - The project root is the nearest directory with `.tantivy2agents.json`;
   `.git` no longer counts. A command run inside a nested git repository
